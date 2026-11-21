@@ -93,8 +93,10 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         val h = height.toFloat()
         val leftPad = 44f * resources.displayMetrics.density / 2 // 左の数値ラベル分
-        val topPad = 20f
-        val bottomPad = 18f
+        // タイトル行の帯はテキスト実寸基準で確保する（固定pxだと上端で見切れる）
+        val titleBaseline = textPaint.textSize
+        val topPad = titleBaseline + 10f
+        val bottomPad = textPaint.textSize + 8f
         val plotW = w - leftPad - 8f
         val plotH = h - topPad - bottomPad
         if (plotW <= 0 || plotH <= 0) return
@@ -107,14 +109,14 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
             val label = (yMax * frac).toInt().toString()
             canvas.drawText(label, 2f, y + textPaint.textSize / 3, textPaint)
         }
-        canvas.drawText("Mbps", leftPad, topPad - 6f, textPaint)
+        canvas.drawText("Mbps", leftPad, titleBaseline, textPaint)
         canvas.drawText(context.getString(R.string.graph_last_60_sec), leftPad + plotW - 70f, h - 4f, textPaint)
 
         val cur = samples.lastOrNull() ?: 0.0
         val mx = samples.maxOrNull() ?: 0.0
         canvas.drawText(
             context.getString(R.string.graph_current_max, cur, mx),
-            leftPad + 50f, topPad - 6f, textPaint
+            leftPad + 50f, titleBaseline, textPaint
         )
 
         if (samples.size < 2) return
@@ -142,13 +144,15 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         val h = height.toFloat()
         val leftPad = 44f * resources.displayMetrics.density / 2
-        val topPad = 20f
-        val bottomPad = 30f
+        // タイトル行の帯はテキスト実寸基準で確保する（固定pxだと上端で見切れる）
+        val titleBaseline = textPaint.textSize
+        val topPad = titleBaseline + 10f
+        val bottomPad = textPaint.textSize + 10f
         val plotW = w - leftPad - 8f
         val plotH = h - topPad - bottomPad
         if (plotW <= 0 || plotH <= 0) return
 
-        canvas.drawText(context.getString(R.string.graph_avg_trend), leftPad, topPad - 6f, textPaint)
+        canvas.drawText(context.getString(R.string.graph_avg_trend), leftPad, titleBaseline, textPaint)
         if (records.isEmpty()) {
             canvas.drawText(context.getString(R.string.graph_no_history), leftPad, topPad + plotH / 2, textPaint)
             return
