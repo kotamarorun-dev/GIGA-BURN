@@ -19,9 +19,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
-import android.text.Spannable
-import android.text.SpannableString
-import android.text.style.RelativeSizeSpan
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
@@ -89,7 +86,11 @@ class MainActivity : Activity() {
     private lateinit var homePage: View
     private lateinit var speedPage: LinearLayout
     private lateinit var settingsPage: View
-    private val tabButtons = mutableListOf<Button>()
+
+    /** ボトムバーの1タブ分（クリック可能なコンテナ＋アイコン＋ラベル） */
+    private class TabViews(val container: LinearLayout, val icon: TextView, val label: TextView)
+
+    private val tabViews = mutableListOf<TabViews>()
     private var selectedTab = TAB_HOME
 
     // ---- スピード画面の履歴状態 ----
@@ -204,15 +205,34 @@ class MainActivity : Activity() {
             Triple("⚙", R.string.tab_settings, TAB_SETTINGS)
         )
         for ((glyph, labelRes, index) in tabs) {
-            val b = Button(this).apply {
-                text = tabText(glyph, getString(labelRes))
+            // アイコンとラベルを別々のTextViewにして縦に並べる（v0.8）。
+            // 以前のSpannableStringの2行テキストは固定高さのButton内で2行目が
+            // はみ出してラベル下側が見切れたため、この構成に作り替えた。
+            val icon = TextView(this).apply {
+                text = glyph
+                textSize = 22f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+            }
+            val label = TextView(this).apply {
+                text = getString(labelRes)
                 textSize = 12f
                 gravity = Gravity.CENTER
-                isAllCaps = false
+                includeFontPadding = false
+                maxLines = 1
+            }
+            val tab = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                contentDescription = getString(labelRes)
+                addView(icon, LinearLayout.LayoutParams(-2, -2))
+                addView(label, LinearLayout.LayoutParams(-2, -2))
                 setOnClickListener { showTab(index) }
             }
-            tabButtons.add(b)
-            bottomBar.addView(b, LinearLayout.LayoutParams(0, dp(64), 1f))
+            tabViews.add(TabViews(tab, icon, label))
+            bottomBar.addView(tab, LinearLayout.LayoutParams(0, dp(64), 1f))
         }
         root.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
 
@@ -221,13 +241,6 @@ class MainActivity : Activity() {
         refreshSpeedPage()
         refreshUi()
         refreshLiveUpdateStatus()
-    }
-
-    /** タブの表示テキスト：アイコンのグリフ（約22sp）＋ラベル（12sp）の2行 */
-    private fun tabText(glyph: String, label: String): SpannableString {
-        val s = SpannableString(glyph + "\n" + label)
-        s.setSpan(RelativeSizeSpan(22f / 12f), 0, glyph.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        return s
     }
 
     /** タブの背景：押下時のリップル付き。選択中は青ベタ、未選択はバーの面色が透ける透明 */
@@ -243,10 +256,12 @@ class MainActivity : Activity() {
         homePage.visibility = if (index == TAB_HOME) View.VISIBLE else View.GONE
         speedPage.visibility = if (index == TAB_SPEED) View.VISIBLE else View.GONE
         settingsPage.visibility = if (index == TAB_SETTINGS) View.VISIBLE else View.GONE
-        tabButtons.forEachIndexed { i, b ->
+        tabViews.forEachIndexed { i, t ->
             val selected = i == index
-            b.background = tabBackground(selected)
-            b.setTextColor(if (selected) Color.WHITE else TAB_UNSELECTED)
+            t.container.background = tabBackground(selected)
+            val color = if (selected) Color.WHITE else TAB_UNSELECTED
+            t.icon.setTextColor(color)
+            t.label.setTextColor(color)
         }
         when (index) {
             TAB_SPEED -> refreshSpeedPage()

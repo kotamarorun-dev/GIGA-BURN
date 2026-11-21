@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GIGA-BURN!! launcher foreground: flame silhouette traced from the user-provided logo, lightning bolt is a negative-space notch open at the bottom (single evenOdd contour). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M42.93,20 L44.29,20 L48.27,20.97 L54.49,23.4 L59.93,26.41 L63.13,28.65 L66.43,31.37 L70.51,35.64 L74.01,40.5 L76.93,46.23 L78.67,51.67 L79.74,58.37 L79.74,64.78 L78.67,70.03 L76.73,74.59 L73.62,79.06 L70.22,82.37 L66.82,84.7 L63.62,86.25 L60.61,87.22 L57.69,87.81 L54,88 L60.99,64.2 L60.9,63.23 L60.41,63.13 L56.33,64.98 L55.17,65.07 L55.17,63.91 L57.4,50.41 L57.3,49.24 L56.04,49.63 L52.83,51.67 L52.35,51.77 L47.69,54.49 L46.71,55.26 L46.62,55.65 L46.62,76.73 L47.1,76.83 L51.09,74.4 L51.86,74.01 L52.25,74.11 L51.96,87.9 L48.17,87.42 L44.97,86.45 L41.18,84.7 L37.87,82.46 L34.86,79.65 L32.82,77.12 L30.3,72.65 L29.23,69.54 L28.55,66.53 L28.16,62.94 L28.35,56.14 L29.52,50.02 L30.78,46.23 L32.05,43.31 L33.21,41.18 L35.45,38.07 L37,36.51 L37.68,36.51 L38.07,44.87 L38.75,47.98 L39.23,48.56 L39.62,48.56 L40.79,47.39 L42.93,43.99 L44.29,41.18 L45.35,38.17 L46.13,33.41 L45.94,29.52 L44.87,25.63 L42.44,21.07 L42.44,20.39 Z" />
+</vector>
