@@ -29,6 +29,7 @@ import kotlin.concurrent.thread
  * バーン（目標GB到達で停止）とスピードテスト（10秒間計測）の2モードを持つ。
  * 状態は companion object 経由で MainActivity と共有する（プロトタイプ簡易実装）。
  * セッション終了時には HistoryStore へ履歴を1件保存する。
+ * ステータスはコード（STATUS_*）で保持し、表示時に文字列リソースへ解決する（日英対応）。
  */
 class DownloadService : Service() {
 
@@ -51,6 +52,16 @@ class DownloadService : Service() {
         const val MODE_BURN = 1
         const val MODE_TEST = 2
 
+        // ---- ステータスコード（表示文言はリソースで解決） ----
+        const val STATUS_IDLE = 0
+        const val STATUS_FETCHING = 1
+        const val STATUS_DOWNLOADING = 2
+        const val STATUS_TESTING = 3
+        const val STATUS_PAUSED_WIFI = 4
+        const val STATUS_STOPPED = 5
+        const val STATUS_TEST_COMPLETE = 6
+        const val STATUS_BURN_COMPLETE = 7
+
         /** スピードテストの計測時間（秒）。先頭 TEST_RAMPUP_SEC 秒は助走として平均から除外 */
         const val TEST_DURATION_SEC = 10
         const val TEST_RAMPUP_SEC = 2
@@ -61,7 +72,7 @@ class DownloadService : Service() {
         @Volatile var isRunning: Boolean = false
         @Volatile var isComplete: Boolean = false
         @Volatile var isPausedWifi: Boolean = false
-        @Volatile var statusText: String = "待機中"
+        @Volatile var statusCode: Int = STATUS_IDLE
         @Volatile var sourceName: String = "-"
         @Volatile var speedBps: Double = 0.0 // bytes/sec（平滑化済み）
         @Volatile var startedAtElapsed: Long = 0 // SystemClock.elapsedRealtime()
@@ -90,6 +101,20 @@ class DownloadService : Service() {
 
         fun formatGB(bytes: Long): String = String.format("%.3f GB", bytes / 1_000_000_000.0)
         fun formatMbps(bps: Double): String = String.format("%.1f Mbps", bps * 8.0 / 1_000_000.0)
+
+        /** 現在のステータスコードを、渡されたコンテキストのロケールで文言に解決する */
+        fun statusLabel(ctx: Context): String = when (statusCode) {
+            STATUS_FETCHING -> ctx.getString(R.string.status_fetching)
+            STATUS_DOWNLOADING ->
+                ctx.getString(R.string.status_downloading, HistoryStore.displaySource(ctx, sourceName))
+            STATUS_TESTING ->
+                ctx.getString(R.string.status_testing, HistoryStore.displaySource(ctx, sourceName))
+            STATUS_PAUSED_WIFI -> ctx.getString(R.string.status_paused_wifi)
+            STATUS_STOPPED -> ctx.getString(R.string.status_stopped)
+            STATUS_TEST_COMPLETE -> ctx.getString(R.string.status_test_complete)
+            STATUS_BURN_COMPLETE -> ctx.getString(R.string.status_burn_complete)
+            else -> ctx.getString(R.string.status_idle)
+        }
     }
 
     @Volatile private var stopRequested = false
@@ -112,7 +137,7 @@ class DownloadService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                stopEngine(complete = false, message = "停止しました")
+                stopEngine(complete = false, status = STATUS_STOPPED)
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -143,7 +168,7 @@ class DownloadService : Service() {
         usingFallback = false
         currentUrls = emptyList()
         sourceName = "-"
-        statusText = "接続先を取得中…"
+        statusCode = STATUS_FETCHING
         startedAtElapsed = SystemClock.elapsedRealtime()
         finishedElapsedMs = 0
         secondRatesMbps.clear()
@@ -153,7 +178,7 @@ class DownloadService : Service() {
         isRunning = true
 
         createChannel()
-        startForegroundWith(buildNotification("接続先を取得中…", 0))
+        startForegroundWith(buildNotification(statusLabel(this), 0))
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gigaburn:download")
@@ -169,8 +194,7 @@ class DownloadService : Service() {
                 switchToFallback()
             }
             if (!stopRequested) {
-                statusText = if (sessionMode == MODE_TEST) "スピードテスト中（$sourceName）"
-                else "ダウンロード中（$sourceName）"
+                statusCode = if (sessionMode == MODE_TEST) STATUS_TESTING else STATUS_DOWNLOADING
             }
             workers = (0 until THREAD_COUNT).map { idx ->
                 thread(name = "gigaburn-dl-$idx") { downloadLoop(idx) }
@@ -203,7 +227,7 @@ class DownloadService : Service() {
                 conn = (URL(withCacheBuster(base)).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15_000
                     readTimeout = 30_000
-                    setRequestProperty("User-Agent", "GigaBurn/0.3 (Android prototype)")
+                    setRequestProperty("User-Agent", "GigaBurn/0.4 (Android prototype)")
                 }
                 activeConnections.add(conn)
                 conn.connect()
@@ -250,8 +274,7 @@ class DownloadService : Service() {
             currentUrls = FALLBACK_URLS
             sourceName = SOURCE_FALLBACK
             if (isRunning && !isComplete) {
-                statusText = if (sessionMode == MODE_TEST) "スピードテスト中（$SOURCE_FALLBACK）"
-                else "ダウンロード中（$SOURCE_FALLBACK）"
+                statusCode = if (sessionMode == MODE_TEST) STATUS_TESTING else STATUS_DOWNLOADING
             }
         }
     }
@@ -263,7 +286,7 @@ class DownloadService : Service() {
             conn = (URL(FASTCOM_API).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 10_000
                 readTimeout = 10_000
-                setRequestProperty("User-Agent", "GigaBurn/0.3 (Android prototype)")
+                setRequestProperty("User-Agent", "GigaBurn/0.4 (Android prototype)")
             }
             val text = conn.inputStream.bufferedReader().use { it.readText() }
             val urls = mutableListOf<String>()
@@ -302,12 +325,11 @@ class DownloadService : Service() {
             if (mobileOnly && wifi) {
                 if (!isPausedWifi) {
                     isPausedWifi = true
-                    statusText = "Wi-Fiのため一時停止中"
+                    statusCode = STATUS_PAUSED_WIFI
                 }
             } else if (isPausedWifi) {
                 isPausedWifi = false
-                statusText = if (sessionMode == MODE_TEST) "スピードテスト中（$sourceName）"
-                else "ダウンロード中（$sourceName）"
+                statusCode = if (sessionMode == MODE_TEST) STATUS_TESTING else STATUS_DOWNLOADING
             }
 
             // 速度（指数移動平均で平滑化）。一時停止中は 0 に寄せる
@@ -330,17 +352,17 @@ class DownloadService : Service() {
 
             // 完了判定
             if (sessionMode == MODE_TEST && activeSec >= TEST_DURATION_SEC) {
-                stopEngine(complete = true, message = "スピードテスト完了")
+                stopEngine(complete = true, status = STATUS_TEST_COMPLETE)
                 return
             }
             if (sessionMode == MODE_BURN && cur >= targetBytes && targetBytes > 0) {
-                stopEngine(complete = true, message = "完了：目標に到達しました")
+                stopEngine(complete = true, status = STATUS_BURN_COMPLETE)
                 return
             }
 
             val pct = currentProgressPct(cur)
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIFICATION_ID, buildNotification(statusText, pct))
+            nm.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), pct))
         }
     }
 
@@ -402,12 +424,12 @@ class DownloadService : Service() {
         )
     }
 
-    private fun stopEngine(complete: Boolean, message: String) {
+    private fun stopEngine(complete: Boolean, status: Int) {
         if (!isRunning && !complete) return
         val wasRunning = isRunning
         stopRequested = true
         isComplete = complete
-        statusText = message
+        statusCode = status
         finishedElapsedMs = if (startedAtElapsed > 0)
             SystemClock.elapsedRealtime() - startedAtElapsed else 0
         if (wasRunning) finalizeRecord()
@@ -421,7 +443,7 @@ class DownloadService : Service() {
 
         val pct = if (complete) 100 else currentProgressPct(downloadedBytes.get())
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, buildNotification(message, pct))
+        nm.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), pct))
         stopForeground(STOP_FOREGROUND_DETACH)
         stopSelf()
     }
@@ -438,7 +460,11 @@ class DownloadService : Service() {
 
     private fun createChannel() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val ch = NotificationChannel(CHANNEL_ID, "ダウンロード進捗", NotificationManager.IMPORTANCE_LOW)
+        val ch = NotificationChannel(
+            CHANNEL_ID,
+            getString(R.string.channel_name),
+            NotificationManager.IMPORTANCE_LOW
+        )
         nm.createNotificationChannel(ch)
     }
 
@@ -449,14 +475,20 @@ class DownloadService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val body = if (sessionMode == MODE_TEST) {
-            "${testElapsedSec} 秒 / ${TEST_DURATION_SEC} 秒 ・ ${formatMbps(speedBps)} ・ ${formatGB(downloadedBytes.get())}"
+            getString(
+                R.string.notif_body_test,
+                testElapsedSec, TEST_DURATION_SEC, formatMbps(speedBps), formatGB(downloadedBytes.get())
+            )
         } else {
-            "${formatGB(downloadedBytes.get())} / ${formatGB(targetBytes)} ・ ${formatMbps(speedBps)}"
+            getString(
+                R.string.notif_body_burn,
+                formatGB(downloadedBytes.get()), formatGB(targetBytes), formatMbps(speedBps)
+            )
         }
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("ギガバーン")
-            .setContentText("$text（$body）")
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(getString(R.string.notif_text_with_body, text, body))
             .setContentIntent(pi)
             .setOngoing(isRunning)
             .setOnlyAlertOnce(true)
@@ -468,7 +500,7 @@ class DownloadService : Service() {
                 Intent(this, DownloadService::class.java).apply { action = ACTION_STOP },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "ストップ", stopPi)
+            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopPi)
         }
 
         if (isRunning && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {

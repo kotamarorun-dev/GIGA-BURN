@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GIGA-BURN!!</string>
+    <string name="app_subtitle">An app that keeps downloading until it hits your target GB, then stops automatically. That\'s all it does.</string>
+
+    <!-- Main screen -->
+    <string name="target_label">Target (GB)</string>
+    <string name="preset_gb">%1$d GB</string>
+    <string name="mobile_only">Mobile data only (pauses on Wi-Fi)</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="speed_test_button">Speed test (%1$d sec)</string>
+    <string name="error_invalid_target">Status: Please enter a valid target in GB</string>
+    <string name="status_plain">Status: %1$s</string>
+    <string name="status_with_source">Status: %1$s (source: %2$s)</string>
+    <string name="downloaded_burn">Downloaded: %1$s / %2$s (%3$.1f%%)</string>
+    <string name="downloaded_burn_plain">Downloaded: %1$s</string>
+    <string name="downloaded_test">Used (testing): %1$s (%2$d sec / %3$d sec)</string>
+    <string name="current_speed">Current speed: %1$s</string>
+    <string name="elapsed_label">Elapsed: %1$s</string>
+    <string name="eta_done">Time left: — (done)</string>
+    <string name="eta_test">Time left: about %1$d sec</string>
+    <string name="eta_burn">Time left: about %1$s</string>
+    <string name="eta_none">Time left: —</string>
+    <string name="graph_live_label">Speed graph (live)</string>
+    <string name="last_result_line">Last result: %1$s, avg %2$.1f Mbps / max %3$.1f Mbps / used %4$s / %5$d sec / %6$s</string>
+    <string name="last_result_running">Last result: running…</string>
+    <string name="last_result_none">Last result: none yet</string>
+    <string name="share_result">Share result</string>
+    <string name="share_result_subject">GIGA-BURN!! result</string>
+    <string name="history_button">History</string>
+
+    <!-- Live Updates -->
+    <string name="live_updates_settings">Open Live Updates settings</string>
+    <string name="lu_unsupported">Live Updates: Requires Android 16 or later. On this device, progress is shown in a regular notification instead.</string>
+    <string name="lu_allowed">Live Updates: Allowed (while downloading, progress is shown prominently at the top of the notification shade and in the status bar).</string>
+    <string name="lu_not_allowed">Live Updates: Not allowed yet. Allow it in Settings to show download progress prominently in the status bar.</string>
+
+    <!-- Statuses (service) -->
+    <string name="status_idle">Idle</string>
+    <string name="status_fetching">Finding a server…</string>
+    <string name="status_downloading">Downloading (%1$s)</string>
+    <string name="status_testing">Running speed test (%1$s)</string>
+    <string name="status_paused_wifi">Paused (on Wi-Fi)</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="status_test_complete">Speed test complete</string>
+    <string name="status_burn_complete">Done: target reached</string>
+    <string name="source_fallback">Fallback server</string>
+
+    <!-- Notifications -->
+    <string name="channel_name">Download progress</string>
+    <string name="notif_text_with_body">%1$s (%2$s)</string>
+    <string name="notif_body_burn">%1$s / %2$s · %3$s</string>
+    <string name="notif_body_test">%1$d sec / %2$d sec · %3$s · %4$s</string>
+
+    <!-- Graphs -->
+    <string name="graph_last_60_sec">Last 60 sec</string>
+    <string name="graph_current_max">Now %1$.1f Mbps / Max %2$.1f Mbps</string>
+    <string name="graph_avg_trend">Average speed (Mbps)</string>
+    <string name="graph_no_history">No history yet</string>
+
+    <!-- History screen -->
+    <string name="history_title">History</string>
+    <string name="history_empty">No history yet. Run a burn or a speed test and it will show up here.</string>
+    <string name="share">Share</string>
+    <string name="share_csv">Share as CSV</string>
+    <string name="clear_history">Clear history</string>
+    <string name="share_history_chooser">Share history</string>
+    <string name="share_history_csv_chooser">Share history as CSV</string>
+    <string name="share_history_subject">GIGA-BURN!! history</string>
+    <string name="share_history_csv_subject">GIGA-BURN!! history (CSV)</string>
+    <string name="csv_failed_toast">Couldn\'t create the CSV. Please use text sharing instead.</string>
+    <string name="clear_dialog_message">Delete all %1$d saved history entries?</string>
+    <string name="clear_confirm">Delete</string>
+    <string name="cancel">Cancel</string>
+    <string name="cleared_toast">History cleared</string>
+
+    <!-- History data formats -->
+    <string name="type_speed_test">Speed test</string>
+    <string name="type_burn">Burn</string>
+    <string name="record_line">%1$s %2$s avg %3$.1f Mbps / max %4$.1f Mbps used %5$s (%6$d sec) %7$s</string>
+    <string name="summary_header">GIGA-BURN!! history (%1$d entries)</string>
+    <string name="single_result_text">GIGA-BURN!! result\nDate: %1$s\nType: %2$s\nAverage: %3$.1f Mbps\nMax: %4$.1f Mbps\nUsed: %5$s\nDuration: %6$d sec\nSource: %7$s</string>
+</resources>

@@ -59,12 +59,12 @@ class LiveGraphView(ctx: Context) : View(ctx) {
             canvas.drawText(label, 2f, y + textPaint.textSize / 3, textPaint)
         }
         canvas.drawText("Mbps", leftPad, topPad - 6f, textPaint)
-        canvas.drawText("直近60秒", leftPad + plotW - 70f, h - 4f, textPaint)
+        canvas.drawText(context.getString(R.string.graph_last_60_sec), leftPad + plotW - 70f, h - 4f, textPaint)
 
         val cur = samples.lastOrNull() ?: 0.0
         val mx = samples.maxOrNull() ?: 0.0
         canvas.drawText(
-            "現在 ${String.format("%.1f", cur)} Mbps / 最大 ${String.format("%.1f", mx)} Mbps",
+            context.getString(R.string.graph_current_max, cur, mx),
             leftPad + 50f, topPad - 6f, textPaint
         )
 
@@ -121,9 +121,9 @@ class HistoryChartView(ctx: Context) : View(ctx) {
         val plotH = h - topPad - bottomPad
         if (plotW <= 0 || plotH <= 0) return
 
-        canvas.drawText("平均速度の推移（Mbps）", leftPad, topPad - 6f, textPaint)
+        canvas.drawText(context.getString(R.string.graph_avg_trend), leftPad, topPad - 6f, textPaint)
         if (records.isEmpty()) {
-            canvas.drawText("履歴がありません", leftPad, topPad + plotH / 2, textPaint)
+            canvas.drawText(context.getString(R.string.graph_no_history), leftPad, topPad + plotH / 2, textPaint)
             return
         }
         val rawMax = max(100.0, (records.maxOf { it.avgMbps }) * 1.1)
@@ -146,8 +146,8 @@ class HistoryChartView(ctx: Context) : View(ctx) {
         }
         if (n > 1) canvas.drawPath(path, linePaint)
 
-        // X軸：最初と最後の日時
-        val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.JAPAN)
+        // X軸：最初と最後の日時（ロケール既定の書式）
+        val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
         val first = fmt.format(Date(records.first().timestampMs))
         val last = fmt.format(Date(records.last().timestampMs))
         canvas.drawText(first, leftPad, h - 8f, textPaint)

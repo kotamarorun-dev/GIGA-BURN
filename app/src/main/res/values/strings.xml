@@ -1,2 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources><string name="app_name">ギガバーン</string></resources>
+<resources>
+    <string name="app_name">ギガバーン！！</string>
+    <string name="app_subtitle">目標ギガ数までダウンロードし続けて自動で止まる、ただそれだけのアプリ</string>
+
+    <!-- メイン画面 -->
+    <string name="target_label">目標（GB）</string>
+    <string name="preset_gb">%1$dGB</string>
+    <string name="mobile_only">モバイル回線のみ（Wi-Fiでは一時停止）</string>
+    <string name="start">スタート</string>
+    <string name="stop">ストップ</string>
+    <string name="speed_test_button">スピードテスト（%1$d秒）</string>
+    <string name="error_invalid_target">状態：目標GBを正しく入力してください</string>
+    <string name="status_plain">状態：%1$s</string>
+    <string name="status_with_source">状態：%1$s（接続先：%2$s）</string>
+    <string name="downloaded_burn">ダウンロード量：%1$s / %2$s（%3$.1f%%）</string>
+    <string name="downloaded_burn_plain">ダウンロード量：%1$s</string>
+    <string name="downloaded_test">使用量（テスト中）：%1$s（%2$d 秒 / %3$d 秒）</string>
+    <string name="current_speed">現在の速度：%1$s</string>
+    <string name="elapsed_label">経過時間：%1$s</string>
+    <string name="eta_done">残り時間：—（完了）</string>
+    <string name="eta_test">残り時間：約 %1$d 秒</string>
+    <string name="eta_burn">残り時間：約 %1$s</string>
+    <string name="eta_none">残り時間：—</string>
+    <string name="graph_live_label">速度グラフ（ライブ）</string>
+    <string name="last_result_line">直近の結果：%1$s 平均 %2$.1f Mbps / 最大 %3$.1f Mbps / 消費 %4$s / %5$d 秒 / %6$s</string>
+    <string name="last_result_running">直近の結果：実行中…</string>
+    <string name="last_result_none">直近の結果：まだありません</string>
+    <string name="share_result">結果を共有</string>
+    <string name="share_result_subject">ギガバーン！！結果</string>
+    <string name="history_button">履歴</string>
+
+    <!-- Live Updates -->
+    <string name="live_updates_settings">Live Updatesの設定を開く</string>
+    <string name="lu_unsupported">Live Updates：Android 16以降の機能です。この端末では通常の進捗通知で表示されます</string>
+    <string name="lu_allowed">Live Updates：許可されています（ダウンロード中は通知欄の上部やステータスバーに大きく表示されます）</string>
+    <string name="lu_not_allowed">Live Updates：まだ許可されていません。設定で許可すると、ダウンロード中の進捗がステータスバー等に大きく表示されます</string>
+
+    <!-- ステータス（サービス） -->
+    <string name="status_idle">待機中</string>
+    <string name="status_fetching">接続先を取得中…</string>
+    <string name="status_downloading">ダウンロード中（%1$s）</string>
+    <string name="status_testing">スピードテスト中（%1$s）</string>
+    <string name="status_paused_wifi">Wi-Fiのため一時停止中</string>
+    <string name="status_stopped">停止しました</string>
+    <string name="status_test_complete">スピードテスト完了</string>
+    <string name="status_burn_complete">完了：目標に到達しました</string>
+    <string name="source_fallback">代替サーバー</string>
+
+    <!-- 通知 -->
+    <string name="channel_name">ダウンロード進捗</string>
+    <string name="notif_text_with_body">%1$s（%2$s）</string>
+    <string name="notif_body_burn">%1$s / %2$s ・ %3$s</string>
+    <string name="notif_body_test">%1$d 秒 / %2$d 秒 ・ %3$s ・ %4$s</string>
+
+    <!-- グラフ -->
+    <string name="graph_last_60_sec">直近60秒</string>
+    <string name="graph_current_max">現在 %1$.1f Mbps / 最大 %2$.1f Mbps</string>
+    <string name="graph_avg_trend">平均速度の推移（Mbps）</string>
+    <string name="graph_no_history">履歴がありません</string>
+
+    <!-- 履歴画面 -->
+    <string name="history_title">履歴</string>
+    <string name="history_empty">履歴はまだありません。バーンかスピードテストを実行すると記録されます。</string>
+    <string name="share">共有</string>
+    <string name="share_csv">CSVで共有</string>
+    <string name="clear_history">履歴を消去</string>
+    <string name="share_history_chooser">履歴を共有</string>
+    <string name="share_history_csv_chooser">履歴をCSVで共有</string>
+    <string name="share_history_subject">ギガバーン！！履歴</string>
+    <string name="share_history_csv_subject">ギガバーン！！履歴（CSV）</string>
+    <string name="csv_failed_toast">CSVの作成に失敗しました。テキスト共有をお使いください</string>
+    <string name="clear_dialog_message">保存されている履歴（%1$d件）をすべて消去します。よろしいですか？</string>
+    <string name="clear_confirm">消去する</string>
+    <string name="cancel">キャンセル</string>
+    <string name="cleared_toast">履歴を消去しました</string>
+
+    <!-- 履歴データの表示フォーマット -->
+    <string name="type_speed_test">スピードテスト</string>
+    <string name="type_burn">バーン</string>
+    <string name="record_line">%1$s %2$s 平均 %3$.1f Mbps / 最大 %4$.1f Mbps 消費 %5$s（%6$d秒）%7$s</string>
+    <string name="summary_header">ギガバーン！！履歴（%1$d件）</string>
+    <string name="single_result_text">ギガバーン！！結果\n日時：%1$s\n種別：%2$s\n平均：%3$.1f Mbps\n最大：%4$.1f Mbps\n消費：%5$s\n時間：%6$d秒\n接続先：%7$s</string>
+</resources>

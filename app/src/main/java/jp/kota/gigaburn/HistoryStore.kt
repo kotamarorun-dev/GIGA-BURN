@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -11,6 +12,9 @@ import java.util.Locale
 /**
  * セッション履歴の保存（内部ストレージの JSON ファイル、依存ライブラリなし）。
  * 保存先: filesDir/history.json（新しい順に最大100件）
+ *
+ * type / source は保存データとしては言語中立ではない旧来の文字列（日本語）をそのまま保持し、
+ * 表示時にロケールへ合わせて変換する（既存の保存データとの互換のため）。
  */
 object HistoryStore {
 
@@ -93,45 +97,67 @@ object HistoryStore {
         }
     }
 
+    // ---------------- 表示用ローカライズ ----------------
+
+    /** 保存値（種別）を現在のロケールの表示名へ変換する */
+    fun displayType(ctx: Context, type: String): String = when (type) {
+        TYPE_TEST, "speedtest" -> ctx.getString(R.string.type_speed_test)
+        TYPE_BURN, "burn" -> ctx.getString(R.string.type_burn)
+        else -> type
+    }
+
+    /** 保存値（接続先）を現在のロケールの表示名へ変換する。"Fast.com" はそのまま */
+    fun displaySource(ctx: Context, source: String): String =
+        if (source == DownloadService.SOURCE_FALLBACK) ctx.getString(R.string.source_fallback)
+        else source
+
     // ---------------- 表示・共有用フォーマット ----------------
 
+    /** ロケールに合わせた日時表記 */
     fun formatDateTime(ms: Long): String =
-        SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date(ms))
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(ms))
 
     fun formatGb(bytes: Long): String = String.format("%.3f GB", bytes / 1_000_000_000.0)
 
     /** 履歴リスト表示・テキスト共有共通の1行表記 */
-    fun recordLine(r: Record): String =
-        "${formatDateTime(r.timestampMs)} ${r.type} " +
-            "平均 ${String.format("%.1f", r.avgMbps)} Mbps / 最大 ${String.format("%.1f", r.maxMbps)} Mbps " +
-            "消費 ${formatGb(r.bytes)}（${r.seconds}秒）${r.source}"
+    fun recordLine(ctx: Context, r: Record): String = ctx.getString(
+        R.string.record_line,
+        formatDateTime(r.timestampMs),
+        displayType(ctx, r.type),
+        r.avgMbps,
+        r.maxMbps,
+        formatGb(r.bytes),
+        r.seconds,
+        displaySource(ctx, r.source)
+    )
 
     /** テキスト共有用サマリ（チャットにそのまま貼れる形） */
-    fun summaryText(records: List<Record>): String {
+    fun summaryText(ctx: Context, records: List<Record>): String {
         val sb = StringBuilder()
-        sb.append("ギガバーン履歴（${records.size}件）\n")
-        for (r in records) sb.append(recordLine(r)).append("\n")
+        sb.append(ctx.getString(R.string.summary_header, records.size)).append("\n")
+        for (r in records) sb.append(recordLine(ctx, r)).append("\n")
         return sb.toString().trimEnd()
     }
 
     /** 1件分の共有テキスト（やや詳しい版） */
-    fun singleResultText(r: Record): String =
-        "ギガバーン結果\n" +
-            "日時：${formatDateTime(r.timestampMs)}\n" +
-            "種別：${r.type}\n" +
-            "平均：${String.format("%.1f", r.avgMbps)} Mbps\n" +
-            "最大：${String.format("%.1f", r.maxMbps)} Mbps\n" +
-            "消費：${formatGb(r.bytes)}\n" +
-            "時間：${r.seconds}秒\n" +
-            "接続先：${r.source}"
+    fun singleResultText(ctx: Context, r: Record): String = ctx.getString(
+        R.string.single_result_text,
+        formatDateTime(r.timestampMs),
+        displayType(ctx, r.type),
+        r.avgMbps,
+        r.maxMbps,
+        formatGb(r.bytes),
+        r.seconds,
+        displaySource(ctx, r.source)
+    )
 
-    /** CSV（ヘッダ: timestamp,type,avg_mbps,max_mbps,gb,seconds,source） */
+    /** CSV（ヘッダ: timestamp,type,avg_mbps,max_mbps,gb,seconds,source）。言語中立フォーマット */
     fun csv(records: List<Record>): String {
         val sb = StringBuilder()
         sb.append("timestamp,type,avg_mbps,max_mbps,gb,seconds,source\n")
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
         for (r in records) {
-            val typeEn = if (r.type == TYPE_TEST) "speedtest" else "burn"
+            val typeEn = if (r.type == TYPE_TEST || r.type == "speedtest") "speedtest" else "burn"
             sb.append(iso.format(Date(r.timestampMs))).append(',')
                 .append(typeEn).append(',')
                 .append(String.format(Locale.US, "%.1f", r.avgMbps)).append(',')

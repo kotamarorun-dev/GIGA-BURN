@@ -99,20 +99,20 @@ class MainActivity : Activity() {
         }
 
         val title = TextView(this).apply {
-            text = "ギガバーン"
+            text = getString(R.string.app_name)
             textSize = 26f
             gravity = Gravity.CENTER
         }
         root.addView(title)
 
         val sub = TextView(this).apply {
-            text = "目標ギガ数までダウンロードし続けて自動で止まる、ただそれだけのアプリ"
+            text = getString(R.string.app_subtitle)
             textSize = 13f
             gravity = Gravity.CENTER
         }
         root.addView(sub)
 
-        val inputLabel = TextView(this).apply { text = "目標（GB）"; textSize = 15f }
+        val inputLabel = TextView(this).apply { text = getString(R.string.target_label); textSize = 15f }
         root.addView(inputLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
 
         inputGB = EditText(this).apply {
@@ -125,7 +125,7 @@ class MainActivity : Activity() {
         val presetRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (gb in listOf(1, 10, 50, 100)) {
             val b = Button(this).apply {
-                text = "${gb}GB"
+                text = getString(R.string.preset_gb, gb)
                 setOnClickListener { inputGB.setText(gb.toString()) }
             }
             presetRow.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
@@ -133,21 +133,21 @@ class MainActivity : Activity() {
         root.addView(presetRow)
 
         mobileOnlyCheck = CheckBox(this).apply {
-            text = "モバイル回線のみ（Wi-Fiでは一時停止）"
+            text = getString(R.string.mobile_only)
             isChecked = true
             textSize = 15f
         }
         root.addView(mobileOnlyCheck, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         startStopButton = Button(this).apply {
-            text = "スタート"
+            text = getString(R.string.start)
             textSize = 18f
             setOnClickListener { onStartStop() }
         }
         root.addView(startStopButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
         speedTestButton = Button(this).apply {
-            text = "スピードテスト（10秒）"
+            text = getString(R.string.speed_test_button, DownloadService.TEST_DURATION_SEC)
             textSize = 16f
             setOnClickListener { onSpeedTest() }
         }
@@ -172,7 +172,7 @@ class MainActivity : Activity() {
 
         // ライブ速度グラフ
         val graphLabel = TextView(this).apply {
-            text = "速度グラフ（ライブ）"
+            text = getString(R.string.graph_live_label)
             textSize = 15f
         }
         root.addView(graphLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -184,14 +184,14 @@ class MainActivity : Activity() {
         root.addView(resultText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
         shareResultButton = Button(this).apply {
-            text = "結果を共有"
+            text = getString(R.string.share_result)
             isEnabled = false
             setOnClickListener { shareLastResult() }
         }
         root.addView(shareResultButton)
 
         val historyButton = Button(this).apply {
-            text = "履歴"
+            text = getString(R.string.history_button)
             setOnClickListener { startActivity(Intent(this@MainActivity, HistoryActivity::class.java)) }
         }
         root.addView(historyButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -200,7 +200,7 @@ class MainActivity : Activity() {
         root.addView(liveUpdateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
 
         liveUpdateButton = Button(this).apply {
-            text = "Live Updatesの設定を開く"
+            text = getString(R.string.live_updates_settings)
             setOnClickListener { openPromotedNotificationSettings() }
         }
         root.addView(liveUpdateButton)
@@ -214,16 +214,16 @@ class MainActivity : Activity() {
     /** Live Updates（Android 16以降）の許可状態を表示する。API 35以下では通常通知になる旨を出す。 */
     private fun refreshLiveUpdateStatus() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
-            liveUpdateText.text = "Live Updates：Android 16以降の機能です。この端末では通常の進捗通知で表示されます"
+            liveUpdateText.text = getString(R.string.lu_unsupported)
             liveUpdateButton.isEnabled = false
             return
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val allowed = try { nm.canPostPromotedNotifications() } catch (e: Exception) { false }
         liveUpdateText.text = if (allowed) {
-            "Live Updates：許可されています（ダウンロード中は通知欄の上部やステータスバーに大きく表示されます）"
+            getString(R.string.lu_allowed)
         } else {
-            "Live Updates：まだ許可されていません。設定で許可すると、ダウンロード中の進捗がステータスバー等に大きく表示されます"
+            getString(R.string.lu_not_allowed)
         }
         liveUpdateButton.isEnabled = true
     }
@@ -261,7 +261,7 @@ class MainActivity : Activity() {
         }
         val gb = inputGB.text.toString().toDoubleOrNull()
         if (gb == null || gb <= 0) {
-            statusTextView.text = "状態：目標GBを正しく入力してください"
+            statusTextView.text = getString(R.string.error_invalid_target)
             return
         }
         val target = (gb * 1_000_000_000.0).toLong()
@@ -295,10 +295,10 @@ class MainActivity : Activity() {
         )
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, HistoryStore.singleResultText(r))
-            putExtra(Intent.EXTRA_SUBJECT, "ギガバーン結果")
+            putExtra(Intent.EXTRA_TEXT, HistoryStore.singleResultText(this@MainActivity, r))
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_result_subject))
         }
-        startActivity(Intent.createChooser(intent, "結果を共有"))
+        startActivity(Intent.createChooser(intent, getString(R.string.share_result)))
     }
 
     private fun refreshUi() {
@@ -308,7 +308,7 @@ class MainActivity : Activity() {
         val isTest = DownloadService.sessionMode == DownloadService.MODE_TEST
 
         // バーンとスピードテストは同時実行不可：実行中は両ボタンを制御
-        startStopButton.text = if (running) "ストップ" else "スタート"
+        startStopButton.text = if (running) getString(R.string.stop) else getString(R.string.start)
         speedTestButton.isEnabled = !running
         inputGB.isEnabled = !running
         mobileOnlyCheck.isEnabled = !running
@@ -322,18 +322,34 @@ class MainActivity : Activity() {
         }
         progressBar.progress = pctPermille
 
-        statusTextView.text = "状態：${DownloadService.statusText}" +
-            if (DownloadService.sourceName != "-") "（接続先：${DownloadService.sourceName}）" else ""
-        downloadedText.text = if (isTest) {
-            "使用量（テスト中）：${DownloadService.formatGB(downloaded)}" +
-                "（${DownloadService.testElapsedSec} 秒 / ${DownloadService.TEST_DURATION_SEC} 秒）"
+        val statusLabel = DownloadService.statusLabel(this)
+        statusTextView.text = if (DownloadService.sourceName != "-") {
+            getString(
+                R.string.status_with_source,
+                statusLabel,
+                HistoryStore.displaySource(this, DownloadService.sourceName)
+            )
         } else {
-            "ダウンロード量：${DownloadService.formatGB(downloaded)}" +
-                if (target > 0 && target != Long.MAX_VALUE)
-                    " / ${DownloadService.formatGB(target)}（${String.format("%.1f", pctPermille / 10.0)}%）"
-                else ""
+            getString(R.string.status_plain, statusLabel)
         }
-        speedText.text = "現在の速度：${DownloadService.formatMbps(DownloadService.speedBps)}"
+        downloadedText.text = if (isTest) {
+            getString(
+                R.string.downloaded_test,
+                DownloadService.formatGB(downloaded),
+                DownloadService.testElapsedSec,
+                DownloadService.TEST_DURATION_SEC
+            )
+        } else if (target > 0 && target != Long.MAX_VALUE) {
+            getString(
+                R.string.downloaded_burn,
+                DownloadService.formatGB(downloaded),
+                DownloadService.formatGB(target),
+                pctPermille / 10.0
+            )
+        } else {
+            getString(R.string.downloaded_burn_plain, DownloadService.formatGB(downloaded))
+        }
+        speedText.text = getString(R.string.current_speed, DownloadService.formatMbps(DownloadService.speedBps))
 
         val elapsedMs = when {
             running && DownloadService.startedAtElapsed > 0 ->
@@ -341,16 +357,16 @@ class MainActivity : Activity() {
             DownloadService.finishedElapsedMs > 0 -> DownloadService.finishedElapsedMs
             else -> 0
         }
-        elapsedText.text = "経過時間：${formatDuration(elapsedMs)}"
+        elapsedText.text = getString(R.string.elapsed_label, formatDuration(elapsedMs))
 
         val speed = DownloadService.speedBps
         etaText.text = when {
-            DownloadService.isComplete -> "残り時間：—（完了）"
+            DownloadService.isComplete -> getString(R.string.eta_done)
             running && isTest ->
-                "残り時間：約 ${DownloadService.TEST_DURATION_SEC - DownloadService.testElapsedSec} 秒"
+                getString(R.string.eta_test, DownloadService.TEST_DURATION_SEC - DownloadService.testElapsedSec)
             running && speed > 0 && target > downloaded && target != Long.MAX_VALUE ->
-                "残り時間：約 ${formatDuration(((target - downloaded) / speed * 1000).toLong())}"
-            else -> "残り時間：—"
+                getString(R.string.eta_burn, formatDuration(((target - downloaded) / speed * 1000).toLong()))
+            else -> getString(R.string.eta_none)
         }
 
         // ライブグラフ（直近60秒）
@@ -358,18 +374,21 @@ class MainActivity : Activity() {
 
         // 直近結果と共有ボタン
         if (DownloadService.hasLastResult && !running) {
-            resultText.text = "直近の結果：${DownloadService.lastResultType}" +
-                " 平均 ${String.format("%.1f", DownloadService.lastResultAvgMbps)} Mbps" +
-                " / 最大 ${String.format("%.1f", DownloadService.lastResultMaxMbps)} Mbps" +
-                " / 消費 ${DownloadService.formatGB(DownloadService.lastResultBytes)}" +
-                " / ${DownloadService.lastResultSeconds} 秒" +
-                " / ${DownloadService.lastResultSource}"
+            resultText.text = getString(
+                R.string.last_result_line,
+                HistoryStore.displayType(this, DownloadService.lastResultType),
+                DownloadService.lastResultAvgMbps,
+                DownloadService.lastResultMaxMbps,
+                DownloadService.formatGB(DownloadService.lastResultBytes),
+                DownloadService.lastResultSeconds,
+                HistoryStore.displaySource(this, DownloadService.lastResultSource)
+            )
             shareResultButton.isEnabled = true
         } else if (DownloadService.hasLastResult && running) {
-            resultText.text = "直近の結果：実行中…"
+            resultText.text = getString(R.string.last_result_running)
             shareResultButton.isEnabled = false
         } else {
-            resultText.text = "直近の結果：まだありません"
+            resultText.text = getString(R.string.last_result_none)
             shareResultButton.isEnabled = false
         }
     }

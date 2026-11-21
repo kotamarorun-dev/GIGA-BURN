@@ -38,7 +38,7 @@ class HistoryActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "履歴"
+            text = getString(R.string.history_title)
             textSize = 24f
             gravity = Gravity.CENTER
         })
@@ -52,17 +52,17 @@ class HistoryActivity : Activity() {
         // ボタン行：テキスト共有 / CSV共有 / 消去
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val shareTextBtn = Button(this).apply {
-            text = "共有"
+            text = getString(R.string.share)
             isEnabled = records.isNotEmpty()
             setOnClickListener { shareText() }
         }
         val shareCsvBtn = Button(this).apply {
-            text = "CSVで共有"
+            text = getString(R.string.share_csv)
             isEnabled = records.isNotEmpty()
             setOnClickListener { shareCsv() }
         }
         val clearBtn = Button(this).apply {
-            text = "履歴を消去"
+            text = getString(R.string.clear_history)
             isEnabled = records.isNotEmpty()
             setOnClickListener { confirmClear() }
         }
@@ -75,13 +75,13 @@ class HistoryActivity : Activity() {
         val listLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         if (records.isEmpty()) {
             listLayout.addView(TextView(this).apply {
-                text = "履歴はまだありません。バーンかスピードテストを実行すると記録されます。"
+                text = getString(R.string.history_empty)
                 textSize = 14f
             })
         } else {
             for (r in records) {
                 listLayout.addView(TextView(this).apply {
-                    text = HistoryStore.recordLine(r)
+                    text = HistoryStore.recordLine(this@HistoryActivity, r)
                     textSize = 14f
                     setPadding(0, dp(6), 0, dp(6))
                 })
@@ -97,10 +97,10 @@ class HistoryActivity : Activity() {
         if (records.isEmpty()) return
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, HistoryStore.summaryText(records))
-            putExtra(Intent.EXTRA_SUBJECT, "ギガバーン履歴")
+            putExtra(Intent.EXTRA_TEXT, HistoryStore.summaryText(this@HistoryActivity, records))
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_history_subject))
         }
-        startActivity(Intent.createChooser(intent, "履歴を共有"))
+        startActivity(Intent.createChooser(intent, getString(R.string.share_history_chooser)))
     }
 
     private fun shareCsv() {
@@ -113,25 +113,25 @@ class HistoryActivity : Activity() {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/csv"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "ギガバーン履歴（CSV）")
+                putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_history_csv_subject))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(intent, "履歴をCSVで共有"))
+            startActivity(Intent.createChooser(intent, getString(R.string.share_history_csv_chooser)))
         } catch (e: Exception) {
-            Toast.makeText(this, "CSVの作成に失敗しました。テキスト共有をお使いください", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.csv_failed_toast), Toast.LENGTH_LONG).show()
         }
     }
 
     private fun confirmClear() {
         AlertDialog.Builder(this)
-            .setTitle("履歴を消去")
-            .setMessage("保存されている履歴（${records.size}件）をすべて消去します。よろしいですか？")
-            .setPositiveButton("消去する") { _, _ ->
+            .setTitle(getString(R.string.clear_history))
+            .setMessage(getString(R.string.clear_dialog_message, records.size))
+            .setPositiveButton(getString(R.string.clear_confirm)) { _, _ ->
                 HistoryStore.clear(this)
-                Toast.makeText(this, "履歴を消去しました", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.cleared_toast), Toast.LENGTH_SHORT).show()
                 buildUi()
             }
-            .setNegativeButton("キャンセル", null)
+            .setNegativeButton(getString(R.string.cancel), null)
             .show()
     }
 }
