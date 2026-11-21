@@ -157,7 +157,12 @@ object HistoryStore {
         sb.append("timestamp,type,avg_mbps,max_mbps,gb,seconds,source\n")
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
         for (r in records) {
-            val typeEn = if (r.type == TYPE_TEST || r.type == "speedtest") "speedtest" else "burn"
+            // 未知の種別は displayType と揃えて原文のまま出す（監査B3）
+            val typeEn = when (r.type) {
+                TYPE_TEST, "speedtest" -> "speedtest"
+                TYPE_BURN, "burn" -> "burn"
+                else -> r.type
+            }
             sb.append(iso.format(Date(r.timestampMs))).append(',')
                 .append(typeEn).append(',')
                 .append(String.format(Locale.US, "%.1f", r.avgMbps)).append(',')

@@ -47,6 +47,7 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="settings_section_live_updates">Live Updates</string>
+    <string name="settings_section_download">Download</string>
     <string name="settings_note">More settings will be added here in the future.</string>
 
     <!-- Live Updates -->
@@ -75,7 +76,6 @@
     <!-- Graphs -->
     <string name="graph_last_60_sec">Last 60 sec</string>
     <string name="graph_current_max">Now %1$.1f Mbps / Max %2$.1f Mbps</string>
-    <string name="graph_avg_trend">Average speed (Mbps)</string>
     <string name="graph_no_history">No history yet</string>
 
     <!-- History on the Speed tab (share / clear) -->

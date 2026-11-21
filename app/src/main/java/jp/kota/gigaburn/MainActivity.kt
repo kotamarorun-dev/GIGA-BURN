@@ -52,62 +52,18 @@ class MainActivity : Activity() {
         private const val TAB_SETTINGS = 2
         private const val STATE_TAB = "selected_tab"
 
-        private val TAB_SELECTED = Color.rgb(33, 150, 243) // 選択中タブの青（両テーマ共通）
 
         // ---- テーマ設定（v0.9） ----
         private const val PREFS_NAME = "settings"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_MOBILE_ONLY = "mobile_only"
+
+        /** グラフに表示する履歴の件数 */
+        private const val GRAPH_HISTORY_COUNT = 30
         private const val THEME_SYSTEM = 0
         private const val THEME_LIGHT = 1
         private const val THEME_DARK = 2
 
-        /** テーマパレット。UIの色はすべてここから解決する（ハードコード禁止）。 */
-        private data class Palette(
-            val dark: Boolean,
-            val background: Int,
-            val barSurface: Int,
-            val divider: Int,
-            val textPrimary: Int,
-            val textSecondary: Int,
-            val tabUnselected: Int,
-            val tabRippleUnselected: Int,
-            val buttonBackground: Int,
-            val buttonText: Int,
-            val graphGrid: Int,
-            val graphText: Int
-        )
-
-        // ダーク：従来（v0.8まで）の常時黒の見た目
-        private val DARK_PALETTE = Palette(
-            dark = true,
-            background = Color.BLACK,
-            barSurface = Color.rgb(0x1C, 0x1C, 0x1E), // 純黒のコンテンツ領域と分ける面色
-            divider = Color.rgb(189, 189, 189),
-            textPrimary = Color.WHITE,
-            textSecondary = Color.rgb(189, 189, 189), // #BDBDBD
-            tabUnselected = Color.rgb(189, 189, 189), // #BDBDBD：未選択でも読める明るいグレー
-            tabRippleUnselected = Color.argb(70, 255, 255, 255),
-            buttonBackground = Color.rgb(0x2C, 0x2C, 0x2E),
-            buttonText = Color.WHITE,
-            graphGrid = Color.rgb(0x3A, 0x3A, 0x3C),
-            graphText = Color.rgb(189, 189, 189)
-        )
-
-        // ライト：白基調。選択中タブの青＋白文字はダークと共通
-        private val LIGHT_PALETTE = Palette(
-            dark = false,
-            background = Color.rgb(0xFA, 0xFA, 0xFA),
-            barSurface = Color.rgb(0xF0, 0xF0, 0xF0),
-            divider = Color.rgb(0xC8, 0xC8, 0xC8),
-            textPrimary = Color.rgb(0x21, 0x21, 0x21),
-            textSecondary = Color.rgb(0x61, 0x61, 0x61),
-            tabUnselected = Color.rgb(0x61, 0x61, 0x61),
-            tabRippleUnselected = Color.argb(40, 0, 0, 0),
-            buttonBackground = Color.rgb(0xE0, 0xE0, 0xE0),
-            buttonText = Color.rgb(0x21, 0x21, 0x21),
-            graphGrid = Color.rgb(0xD6, 0xD6, 0xD6),
-            graphText = Color.rgb(0x61, 0x61, 0x61)
-        )
     }
 
     /** 有効なテーマパレット（onCreateでbuildUiより前に解決する） */
@@ -115,7 +71,6 @@ class MainActivity : Activity() {
 
     // ---- ホーム画面のView ----
     private lateinit var inputGB: EditText
-    private lateinit var mobileOnlyCheck: CheckBox
     private lateinit var startStopButton: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var downloadedText: TextView
@@ -154,34 +109,11 @@ class MainActivity : Activity() {
     // ---- スピード画面の履歴状態 ----
     private var historyRecords: List<HistoryStore.Record> = emptyList()
 
-    // 統合グラフ（ライブ表示用）：1秒ごとに採取したMbpsサンプル（停止後も保持し、開始時にリセット）
-    private val liveSamples = mutableListOf<Double>()
-    private var pollCount = 0
-    private var wasRunning = false
-
     private val handler = Handler(Looper.getMainLooper())
     private val poll = object : Runnable {
         override fun run() {
-            sampleIfNeeded()
             refreshUi()
             handler.postDelayed(this, 500)
-        }
-    }
-
-    /** 500msポーリングのうち2回に1回（=1秒間隔）で速度サンプルを採取する */
-    private fun sampleIfNeeded() {
-        val running = DownloadService.isRunning
-        if (running && !wasRunning) {
-            liveSamples.clear() // セッション開始でリセット
-        }
-        if (!running && wasRunning && selectedTab == TAB_SPEED) {
-            refreshSpeedPage() // スピードタブ表示中にセッションが終わったら一覧・グラフを最新化
-        }
-        wasRunning = running
-        pollCount++
-        if (running && pollCount % 2 == 0) {
-            liveSamples.add(DownloadService.speedBps * 8.0 / 1_000_000.0)
-            if (liveSamples.size > 600) liveSamples.removeAt(0)
         }
     }
 
@@ -193,6 +125,16 @@ class MainActivity : Activity() {
     private fun saveThemeMode(mode: Int) {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putInt(KEY_THEME_MODE, mode).apply()
+    }
+
+    /** 「モバイル回線のみ」設定の読み書き（設定タブで管理する共有設定、既定は有効：監査B5） */
+    private fun loadMobileOnly(): Boolean =
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_MOBILE_ONLY, true)
+
+    private fun saveMobileOnly(value: Boolean) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_MOBILE_ONLY, value).apply()
     }
 
     /** 設定値＋システムのダークモード設定から、実際にダークパレットを使うか決める */
@@ -333,7 +275,7 @@ class MainActivity : Activity() {
         val rippleColor = ColorStateList.valueOf(
             if (selected) Color.argb(70, 255, 255, 255) else palette.tabRippleUnselected
         )
-        val content = ColorDrawable(if (selected) TAB_SELECTED else Color.TRANSPARENT)
+        val content = ColorDrawable(if (selected) palette.tabSelected else Color.TRANSPARENT)
         return RippleDrawable(rippleColor, content, null)
     }
 
@@ -346,7 +288,7 @@ class MainActivity : Activity() {
         tabViews.forEachIndexed { i, t ->
             val selected = i == index
             t.container.background = tabBackground(selected)
-            val color = if (selected) Color.WHITE else palette.tabUnselected
+            val color = if (selected) palette.tabSelectedText else palette.tabUnselected
             t.icon.setTextColor(color)
             t.label.setTextColor(color)
         }
@@ -408,14 +350,6 @@ class MainActivity : Activity() {
             presetRow.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
         }
         root.addView(presetRow)
-
-        mobileOnlyCheck = CheckBox(this).apply {
-            text = getString(R.string.mobile_only)
-            isChecked = true
-            textSize = 15f
-            setTextColor(palette.textPrimary)
-        }
-        root.addView(mobileOnlyCheck, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         startStopButton = Button(this).apply {
             text = getString(R.string.start)
@@ -556,9 +490,9 @@ class MainActivity : Activity() {
         }
 
         // アイドル時はグラフを履歴モードにする（実行中はrefreshUiがライブ表示を維持する）
-        if (!DownloadService.isRunning) {
+        if (!SessionState.isRunning) {
             graphModeLabel.text = getString(R.string.graph_history_label)
-            speedGraph.showHistory(historyRecords.take(30).reversed())
+            speedGraph.showHistory(historyRecords.take(GRAPH_HISTORY_COUNT).reversed())
         }
     }
 
@@ -637,7 +571,7 @@ class MainActivity : Activity() {
                 text = getString(labelRes)
                 textSize = 15f
                 setTextColor(palette.textPrimary)
-                buttonTintList = ColorStateList.valueOf(TAB_SELECTED)
+                buttonTintList = ColorStateList.valueOf(palette.tabSelected)
                 id = View.generateViewId()
             }
             radioByMode[mode] = rb
@@ -654,6 +588,20 @@ class MainActivity : Activity() {
         }
         themeSection.addView(themeGroup, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         root.addView(themeSection, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+
+        // --- セクション: ダウンロード（バーン／スピードテスト共通の設定：監査B5） ---
+        val dlSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        dlSection.addView(sectionHeader(getString(R.string.settings_section_download)))
+        val mobileOnlyBox = CheckBox(this).apply {
+            text = getString(R.string.mobile_only)
+            isChecked = loadMobileOnly()
+            textSize = 15f
+            setTextColor(palette.textPrimary)
+            buttonTintList = ColorStateList.valueOf(palette.tabSelected)
+            setOnCheckedChangeListener { _, checked -> saveMobileOnly(checked) }
+        }
+        dlSection.addView(mobileOnlyBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        root.addView(dlSection, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
 
         // --- セクション: Live Updates ---
         val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -742,7 +690,7 @@ class MainActivity : Activity() {
     }
 
     private fun onStartStop() {
-        if (DownloadService.isRunning) {
+        if (SessionState.isRunning) {
             val i = Intent(this, DownloadService::class.java).apply { action = DownloadService.ACTION_STOP }
             startService(i)
             return
@@ -756,31 +704,31 @@ class MainActivity : Activity() {
         val i = Intent(this, DownloadService::class.java).apply {
             action = DownloadService.ACTION_START
             putExtra(DownloadService.EXTRA_TARGET_BYTES, target)
-            putExtra(DownloadService.EXTRA_MOBILE_ONLY, mobileOnlyCheck.isChecked)
+            putExtra(DownloadService.EXTRA_MOBILE_ONLY, loadMobileOnly())
         }
         startForegroundService(i)
     }
 
     private fun onSpeedTest() {
-        if (DownloadService.isRunning) return
-        // 「モバイル回線のみ」トグルはホーム画面にあるが、アプリ全体で共有する設定として読む
+        if (SessionState.isRunning) return
+        // 「モバイル回線のみ」は設定タブで管理する共有設定として読む（監査B5）
         val i = Intent(this, DownloadService::class.java).apply {
             action = DownloadService.ACTION_START_TEST
-            putExtra(DownloadService.EXTRA_MOBILE_ONLY, mobileOnlyCheck.isChecked)
+            putExtra(DownloadService.EXTRA_MOBILE_ONLY, loadMobileOnly())
         }
         startForegroundService(i)
     }
 
     private fun shareLastResult() {
-        if (!DownloadService.hasLastResult) return
+        if (!SessionState.hasLastResult) return
         val r = HistoryStore.Record(
-            timestampMs = DownloadService.lastResultTimestampMs,
-            type = DownloadService.lastResultType,
-            avgMbps = DownloadService.lastResultAvgMbps,
-            maxMbps = DownloadService.lastResultMaxMbps,
-            bytes = DownloadService.lastResultBytes,
-            seconds = DownloadService.lastResultSeconds,
-            source = DownloadService.lastResultSource
+            timestampMs = SessionState.lastResultTimestampMs,
+            type = SessionState.lastResultType,
+            avgMbps = SessionState.lastResultAvgMbps,
+            maxMbps = SessionState.lastResultMaxMbps,
+            bytes = SessionState.lastResultBytes,
+            seconds = SessionState.lastResultSeconds,
+            source = SessionState.lastResultSource
         )
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -791,19 +739,19 @@ class MainActivity : Activity() {
     }
 
     private fun refreshUi() {
-        val downloaded = DownloadService.downloadedBytes.get()
-        val target = DownloadService.targetBytes
-        val running = DownloadService.isRunning
-        val isTest = DownloadService.sessionMode == DownloadService.MODE_TEST
+        if (!::speedGraph.isInitialized) return // refreshSpeedPage とガードを揃える（監査A4）
+        val downloaded = SessionState.downloadedBytes.get()
+        val target = SessionState.targetBytes
+        val running = SessionState.isRunning
+        val isTest = SessionState.sessionMode == DownloadService.MODE_TEST
 
         // バーンとスピードテストは同時実行不可：実行中は両ボタンを制御
         startStopButton.text = if (running) getString(R.string.stop) else getString(R.string.start)
         speedTestButton.isEnabled = !running
         inputGB.isEnabled = !running
-        mobileOnlyCheck.isEnabled = !running
 
         val pctPermille = when {
-            isTest -> (DownloadService.testElapsedSec * 1000 / DownloadService.TEST_DURATION_SEC)
+            isTest -> (SessionState.testElapsedSec * 1000 / DownloadService.TEST_DURATION_SEC)
                 .coerceIn(0, 1000)
             target > 0 && target != Long.MAX_VALUE ->
                 (downloaded * 1000 / target).toInt().coerceIn(0, 1000)
@@ -812,11 +760,11 @@ class MainActivity : Activity() {
         progressBar.progress = pctPermille
 
         val statusLabel = DownloadService.statusLabel(this)
-        statusTextView.text = if (DownloadService.sourceName != "-") {
+        statusTextView.text = if (SessionState.sourceName != "-") {
             getString(
                 R.string.status_with_source,
                 statusLabel,
-                HistoryStore.displaySource(this, DownloadService.sourceName)
+                HistoryStore.displaySource(this, SessionState.sourceName)
             )
         } else {
             getString(R.string.status_plain, statusLabel)
@@ -824,83 +772,82 @@ class MainActivity : Activity() {
         downloadedText.text = if (isTest) {
             getString(
                 R.string.downloaded_test,
-                DownloadService.formatGB(downloaded),
-                DownloadService.testElapsedSec,
+                HistoryStore.formatGb(downloaded),
+                SessionState.testElapsedSec,
                 DownloadService.TEST_DURATION_SEC
             )
         } else if (target > 0 && target != Long.MAX_VALUE) {
             getString(
                 R.string.downloaded_burn,
-                DownloadService.formatGB(downloaded),
-                DownloadService.formatGB(target),
+                HistoryStore.formatGb(downloaded),
+                HistoryStore.formatGb(target),
                 pctPermille / 10.0
             )
         } else {
-            getString(R.string.downloaded_burn_plain, DownloadService.formatGB(downloaded))
+            getString(R.string.downloaded_burn_plain, HistoryStore.formatGb(downloaded))
         }
-        speedText.text = getString(R.string.current_speed, DownloadService.formatMbps(DownloadService.speedBps))
+        speedText.text = getString(R.string.current_speed, DownloadService.formatMbps(SessionState.speedBps))
 
         val elapsedMs = when {
-            running && DownloadService.startedAtElapsed > 0 ->
-                SystemClock.elapsedRealtime() - DownloadService.startedAtElapsed
-            DownloadService.finishedElapsedMs > 0 -> DownloadService.finishedElapsedMs
+            running && SessionState.startedAtElapsed > 0 ->
+                SystemClock.elapsedRealtime() - SessionState.startedAtElapsed
+            SessionState.finishedElapsedMs > 0 -> SessionState.finishedElapsedMs
             else -> 0
         }
         elapsedText.text = getString(R.string.elapsed_label, formatDuration(elapsedMs))
 
-        val speed = DownloadService.speedBps
+        val speed = SessionState.speedBps
         etaText.text = when {
-            DownloadService.isComplete -> getString(R.string.eta_done)
+            SessionState.isComplete -> getString(R.string.eta_done)
             running && isTest ->
-                getString(R.string.eta_test, DownloadService.TEST_DURATION_SEC - DownloadService.testElapsedSec)
+                getString(R.string.eta_test, DownloadService.TEST_DURATION_SEC - SessionState.testElapsedSec)
             running && speed > 0 && target > downloaded && target != Long.MAX_VALUE ->
                 getString(R.string.eta_burn, formatDuration(((target - downloaded) / speed * 1000).toLong()))
             else -> getString(R.string.eta_none)
         }
 
-        // 統合グラフ：実行中はライブ（直近60秒）を表示し、終了したら履歴モードへ切り替える
+        // 統合グラフ：実行中はライブ（直近60秒）を表示し、終了したら履歴モードへ切り替える。
+        // ライブサンプルはサービス側（SessionState）が保持する（監査D1）
         if (running) {
             graphModeLabel.text = getString(R.string.graph_live_label)
-            speedGraph.showLive(liveSamples.takeLast(60))
+            speedGraph.showLive(SessionState.liveSamples())
         } else if (speedGraph.mode == SpeedGraphView.Mode.LIVE) {
-            // セッション終了直後の1回だけ履歴モードへ（保存済みの最新履歴を読み直す）
-            historyRecords = HistoryStore.load(this)
-            graphModeLabel.text = getString(R.string.graph_history_label)
-            speedGraph.showHistory(historyRecords.take(30).reversed())
+            // セッション終了直後の1回だけ、履歴一覧ごと最新化して履歴モードへ
+            refreshSpeedPage()
         }
 
         // スピードテストの結果表示（スピードタブ上部）
         speedTestResultText.text = when {
             running && isTest -> getString(
                 R.string.speed_test_running,
-                DownloadService.testElapsedSec,
+                SessionState.testElapsedSec,
                 DownloadService.TEST_DURATION_SEC
             )
-            DownloadService.hasLastResult &&
-                DownloadService.lastResultType == HistoryStore.TYPE_TEST -> getString(
+            SessionState.hasLastResult &&
+                SessionState.lastResultType == HistoryStore.TYPE_TEST -> getString(
                 R.string.speed_test_result_line,
-                DownloadService.lastResultAvgMbps,
-                DownloadService.lastResultMaxMbps,
-                DownloadService.formatGB(DownloadService.lastResultBytes),
-                DownloadService.lastResultSeconds,
-                HistoryStore.displaySource(this, DownloadService.lastResultSource)
+                SessionState.lastResultAvgMbps,
+                SessionState.lastResultMaxMbps,
+                HistoryStore.formatGb(SessionState.lastResultBytes),
+                SessionState.lastResultSeconds,
+                HistoryStore.displaySource(this, SessionState.lastResultSource)
             )
             else -> getString(R.string.speed_test_result_none)
         }
 
         // 直近結果と共有ボタン
-        if (DownloadService.hasLastResult && !running) {
+        if (SessionState.hasLastResult && !running) {
             resultText.text = getString(
                 R.string.last_result_line,
-                HistoryStore.displayType(this, DownloadService.lastResultType),
-                DownloadService.lastResultAvgMbps,
-                DownloadService.lastResultMaxMbps,
-                DownloadService.formatGB(DownloadService.lastResultBytes),
-                DownloadService.lastResultSeconds,
-                HistoryStore.displaySource(this, DownloadService.lastResultSource)
+                HistoryStore.displayType(this, SessionState.lastResultType),
+                SessionState.lastResultAvgMbps,
+                SessionState.lastResultMaxMbps,
+                HistoryStore.formatGb(SessionState.lastResultBytes),
+                SessionState.lastResultSeconds,
+                HistoryStore.displaySource(this, SessionState.lastResultSource)
             )
             shareResultButton.isEnabled = true
-        } else if (DownloadService.hasLastResult && running) {
+        } else if (SessionState.hasLastResult && running) {
             resultText.text = getString(R.string.last_result_running)
             shareResultButton.isEnabled = false
         } else {

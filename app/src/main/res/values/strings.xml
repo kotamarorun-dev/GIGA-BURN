@@ -47,6 +47,7 @@
     <string name="theme_light">ライト</string>
     <string name="theme_dark">ダーク</string>
     <string name="settings_section_live_updates">Live Updates</string>
+    <string name="settings_section_download">ダウンロード</string>
     <string name="settings_note">設定項目は今後ここに追加されていきます。</string>
 
     <!-- Live Updates -->
@@ -75,7 +76,6 @@
     <!-- グラフ -->
     <string name="graph_last_60_sec">直近60秒</string>
     <string name="graph_current_max">現在 %1$.1f Mbps / 最大 %2$.1f Mbps</string>
-    <string name="graph_avg_trend">平均速度の推移（Mbps）</string>
     <string name="graph_no_history">履歴がありません</string>
 
     <!-- スピードタブの履歴（共有・消去） -->

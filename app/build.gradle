@@ -8,8 +8,8 @@ android {
         applicationId 'jp.kota.gigaburn'
         minSdk 29
         targetSdk 36
-        versionCode 11
-        versionName '0.11.0-prototype'
+        versionCode 12
+        versionName '0.12.0-prototype'
     }
     buildTypes { release { minifyEnabled false } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }

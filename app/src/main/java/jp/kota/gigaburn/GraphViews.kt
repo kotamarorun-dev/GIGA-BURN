@@ -15,7 +15,8 @@ import kotlin.math.max
  * 統合速度グラフ（スピードタブ用）：旧LiveGraphViewと旧HistoryChartViewを1つに統合したView。
  * - LIVEモード: セッション実行中。直近60秒の1秒サンプルをローリング表示する。
  * - HISTORYモード: アイドル時。保存済み履歴の平均Mbpsの推移を表示する。
- * モード切替はMainActivity側がDownloadService.isRunningを見て行う。
+ * モード切替はMainActivity側がDownloadServiceの実行状態を見て行う。
+ * 余白・グリッド・Y軸まわりは両モード共通の実装に寄せてある（監査C1）。
  */
 class SpeedGraphView(ctx: Context) : View(ctx) {
 
@@ -80,96 +81,107 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
         }
     }
 
-    // ---------------- LIVEモード（旧LiveGraphView） ----------------
+    // ---------------- 共通（余白・グリッド・Y軸） ----------------
+
+    /** プロット領域とY軸スケール */
+    private class Plot(val left: Float, val top: Float, val w: Float, val h: Float, val yMax: Double)
 
     /** Y軸の天井：最低100Mbps、最大値の1.1倍を50Mbps単位で切り上げ */
-    private fun liveYCeil(): Double {
-        val m = samples.maxOrNull() ?: 0.0
-        val raw = max(100.0, m * 1.1)
+    private fun yCeil(rawMax: Double): Double {
+        val raw = max(100.0, rawMax * 1.1)
         return Math.ceil(raw / 50.0) * 50.0
     }
 
+    /**
+     * 余白を差し引いたプロット領域を計算する。描画できない大きさなら null。
+     * leftPad は左の数値ラベル分、topPad / bottomPad は呼び出し側が決める
+     * （タイトル帯や日付ラベルの有無で変わるため）。
+     */
+    private fun computePlot(topPad: Float, bottomPad: Float, rawMax: Double): Plot? {
+        val leftPad = 44f * resources.displayMetrics.density / 2
+        val plotW = width.toFloat() - leftPad - 8f
+        val plotH = height.toFloat() - topPad - bottomPad
+        if (plotW <= 0 || plotH <= 0) return null
+        return Plot(leftPad, topPad, plotW, plotH, yCeil(rawMax))
+    }
+
+    /** グリッド3本（0 / 半分 / 最大）とY軸ラベルを描く */
+    private fun drawGridAndLabels(canvas: Canvas, plot: Plot) {
+        for (frac in listOf(0.0, 0.5, 1.0)) {
+            val y = plot.top + plot.h - (plot.h * frac).toFloat()
+            canvas.drawLine(plot.left, y, plot.left + plot.w, y, gridPaint)
+            val label = (plot.yMax * frac).toInt().toString()
+            canvas.drawText(label, 2f, y + textPaint.textSize / 3, textPaint)
+        }
+    }
+
+    /** 値 → プロット内のY座標 */
+    private fun plotY(plot: Plot, v: Double): Float =
+        plot.top + plot.h - (plot.h * (v / plot.yMax).coerceIn(0.0, 1.0)).toFloat()
+
+    // ---------------- LIVEモード ----------------
+
     private fun drawLive(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val leftPad = 44f * resources.displayMetrics.density / 2 // 左の数値ラベル分
-        // タイトル行の帯はテキスト実寸基準で確保する（固定pxだと上端で見切れる）
+        // タイトル帯（現在／最大）はテキスト実寸基準で確保する（固定pxだと上端で見切れる）
         val titleBaseline = textPaint.textSize
         val topPad = titleBaseline + 10f
         val bottomPad = textPaint.textSize + 8f
-        val plotW = w - leftPad - 8f
-        val plotH = h - topPad - bottomPad
-        if (plotW <= 0 || plotH <= 0) return
-        val yMax = liveYCeil()
+        val plot = computePlot(topPad, bottomPad, samples.maxOrNull() ?: 0.0) ?: return
 
-        // グリッドとY軸ラベル（0 / 半分 / 最大）
-        for (frac in listOf(0.0, 0.5, 1.0)) {
-            val y = topPad + plotH - (plotH * frac).toFloat()
-            canvas.drawLine(leftPad, y, leftPad + plotW, y, gridPaint)
-            val label = (yMax * frac).toInt().toString()
-            canvas.drawText(label, 2f, y + textPaint.textSize / 3, textPaint)
-        }
-        canvas.drawText(context.getString(R.string.graph_last_60_sec), leftPad + plotW - 70f, h - 4f, textPaint)
+        drawGridAndLabels(canvas, plot)
 
         val cur = samples.lastOrNull() ?: 0.0
         val mx = samples.maxOrNull() ?: 0.0
         canvas.drawText(
             context.getString(R.string.graph_current_max, cur, mx),
-            leftPad + 50f, titleBaseline, textPaint
+            plot.left, titleBaseline, textPaint
         )
+        // 右下の「直近60秒」は実幅を測って右寄せする（固定オフセットだとロケールでずれる：監査A2）
+        val rangeLabel = context.getString(R.string.graph_last_60_sec)
+        canvas.drawText(rangeLabel, plot.left + plot.w - textPaint.measureText(rangeLabel), height - 4f, textPaint)
 
         if (samples.size < 2) return
-        val stepX = plotW / 59f // 直近60点で横幅いっぱい
+        val stepX = plot.w / 59f // 直近60点で横幅いっぱい
         val startIdx = max(0, samples.size - 60)
         val visible = samples.subList(startIdx, samples.size)
         val path = Path()
         val fill = Path()
         visible.forEachIndexed { i, v ->
-            val x = leftPad + stepX * i
-            val y = topPad + plotH - (plotH * (v / yMax).coerceIn(0.0, 1.0)).toFloat()
-            if (i == 0) { path.moveTo(x, y); fill.moveTo(x, topPad + plotH); fill.lineTo(x, y) }
+            val x = plot.left + stepX * i
+            val y = plotY(plot, v)
+            if (i == 0) { path.moveTo(x, y); fill.moveTo(x, plot.top + plot.h); fill.lineTo(x, y) }
             else { path.lineTo(x, y); fill.lineTo(x, y) }
         }
-        val lastX = leftPad + stepX * (visible.size - 1)
-        fill.lineTo(lastX, topPad + plotH)
+        val lastX = plot.left + stepX * (visible.size - 1)
+        fill.lineTo(lastX, plot.top + plot.h)
         fill.close()
         canvas.drawPath(fill, liveFillPaint)
         canvas.drawPath(path, liveLinePaint)
     }
 
-    // ---------------- HISTORYモード（旧HistoryChartView） ----------------
+    // ---------------- HISTORYモード ----------------
 
     private fun drawHistory(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val leftPad = 44f * resources.displayMetrics.density / 2
         // キャンバス内のタイトルは廃止（上のモードラベルと冗長なため）。
         // 上余白は最大値ラベルが切れない分だけ確保する
         val topPad = textPaint.textSize * 0.9f
         val bottomPad = textPaint.textSize + 10f
-        val plotW = w - leftPad - 8f
-        val plotH = h - topPad - bottomPad
-        if (plotW <= 0 || plotH <= 0) return
+        val rawMax = if (records.isEmpty()) 0.0 else records.maxOf { it.avgMbps }
+        val plot = computePlot(topPad, bottomPad, rawMax) ?: return
 
         if (records.isEmpty()) {
-            canvas.drawText(context.getString(R.string.graph_no_history), leftPad, topPad + plotH / 2, textPaint)
+            canvas.drawText(context.getString(R.string.graph_no_history), plot.left, topPad + plot.h / 2, textPaint)
             return
         }
-        val rawMax = max(100.0, (records.maxOf { it.avgMbps }) * 1.1)
-        val yMax = Math.ceil(rawMax / 50.0) * 50.0
 
-        for (frac in listOf(0.0, 0.5, 1.0)) {
-            val y = topPad + plotH - (plotH * frac).toFloat()
-            canvas.drawLine(leftPad, y, leftPad + plotW, y, gridPaint)
-            canvas.drawText((yMax * frac).toInt().toString(), 2f, y + textPaint.textSize / 3, textPaint)
-        }
+        drawGridAndLabels(canvas, plot)
 
         val n = records.size
         val path = Path()
         records.forEachIndexed { i, r ->
-            val x = if (n == 1) leftPad + plotW / 2
-            else leftPad + plotW * i / (n - 1)
-            val y = topPad + plotH - (plotH * (r.avgMbps / yMax).coerceIn(0.0, 1.0)).toFloat()
+            val x = if (n == 1) plot.left + plot.w / 2
+            else plot.left + plot.w * i / (n - 1)
+            val y = plotY(plot, r.avgMbps)
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             canvas.drawCircle(x, y, 3.5f, historyPointPaint)
         }
@@ -179,8 +191,8 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
         val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
         val first = fmt.format(Date(records.first().timestampMs))
         val last = fmt.format(Date(records.last().timestampMs))
-        canvas.drawText(first, leftPad, h - 8f, textPaint)
+        canvas.drawText(first, plot.left, height - 8f, textPaint)
         val lastW = textPaint.measureText(last)
-        canvas.drawText(last, leftPad + plotW - lastW, h - 8f, textPaint)
+        canvas.drawText(last, plot.left + plot.w - lastW, height - 8f, textPaint)
     }
 }
