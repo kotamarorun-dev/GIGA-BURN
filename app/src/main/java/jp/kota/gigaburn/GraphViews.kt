@@ -109,7 +109,6 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
             val label = (yMax * frac).toInt().toString()
             canvas.drawText(label, 2f, y + textPaint.textSize / 3, textPaint)
         }
-        canvas.drawText("Mbps", leftPad, titleBaseline, textPaint)
         canvas.drawText(context.getString(R.string.graph_last_60_sec), leftPad + plotW - 70f, h - 4f, textPaint)
 
         val cur = samples.lastOrNull() ?: 0.0
@@ -144,15 +143,14 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         val h = height.toFloat()
         val leftPad = 44f * resources.displayMetrics.density / 2
-        // タイトル行の帯はテキスト実寸基準で確保する（固定pxだと上端で見切れる）
-        val titleBaseline = textPaint.textSize
-        val topPad = titleBaseline + 10f
+        // キャンバス内のタイトルは廃止（上のモードラベルと冗長なため）。
+        // 上余白は最大値ラベルが切れない分だけ確保する
+        val topPad = textPaint.textSize * 0.9f
         val bottomPad = textPaint.textSize + 10f
         val plotW = w - leftPad - 8f
         val plotH = h - topPad - bottomPad
         if (plotW <= 0 || plotH <= 0) return
 
-        canvas.drawText(context.getString(R.string.graph_avg_trend), leftPad, titleBaseline, textPaint)
         if (records.isEmpty()) {
             canvas.drawText(context.getString(R.string.graph_no_history), leftPad, topPad + plotH / 2, textPaint)
             return
