@@ -42,6 +42,10 @@
 
     <!-- 設定画面 -->
     <string name="settings_title">設定</string>
+    <string name="settings_section_theme">テーマ</string>
+    <string name="theme_system">システムに連動</string>
+    <string name="theme_light">ライト</string>
+    <string name="theme_dark">ダーク</string>
     <string name="settings_section_live_updates">Live Updates</string>
     <string name="settings_note">設定項目は今後ここに追加されていきます。</string>
 

@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
@@ -28,6 +29,8 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -38,7 +41,7 @@ import java.io.File
  * - ホーム: バーンの操作と進捗、直近結果と共有
  * - スピード: スピードテスト、統合グラフ（実行中はライブ／アイドル時は履歴推移）、
  *   履歴の共有（テキスト／CSV）・消去、履歴一覧
- * - 設定: 当面はLive Updatesの許可状態のみ（セクション形式で拡張可能に）
+ * - 設定: テーマ切替（システム連動／ライト／ダーク）とLive Updatesの許可状態（セクション形式で拡張可能に）
  * ダウンロードはフォアグラウンドサービス側で動くため、タブ切替では中断されない。
  */
 class MainActivity : Activity() {
@@ -49,11 +52,66 @@ class MainActivity : Activity() {
         private const val TAB_SETTINGS = 2
         private const val STATE_TAB = "selected_tab"
 
-        // ボトムバーの配色（v0.6で最適化）
-        private val BAR_SURFACE = Color.rgb(0x1C, 0x1C, 0x1E) // 純黒のコンテンツ領域と分ける面色
-        private val TAB_SELECTED = Color.rgb(33, 150, 243) // 選択中タブの青
-        private val TAB_UNSELECTED = Color.rgb(189, 189, 189) // #BDBDBD：未選択でも読める明るいグレー
+        private val TAB_SELECTED = Color.rgb(33, 150, 243) // 選択中タブの青（両テーマ共通）
+
+        // ---- テーマ設定（v0.9） ----
+        private const val PREFS_NAME = "settings"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val THEME_SYSTEM = 0
+        private const val THEME_LIGHT = 1
+        private const val THEME_DARK = 2
+
+        /** テーマパレット。UIの色はすべてここから解決する（ハードコード禁止）。 */
+        private data class Palette(
+            val dark: Boolean,
+            val background: Int,
+            val barSurface: Int,
+            val divider: Int,
+            val textPrimary: Int,
+            val textSecondary: Int,
+            val tabUnselected: Int,
+            val tabRippleUnselected: Int,
+            val buttonBackground: Int,
+            val buttonText: Int,
+            val graphGrid: Int,
+            val graphText: Int
+        )
+
+        // ダーク：従来（v0.8まで）の常時黒の見た目
+        private val DARK_PALETTE = Palette(
+            dark = true,
+            background = Color.BLACK,
+            barSurface = Color.rgb(0x1C, 0x1C, 0x1E), // 純黒のコンテンツ領域と分ける面色
+            divider = Color.rgb(189, 189, 189),
+            textPrimary = Color.WHITE,
+            textSecondary = Color.rgb(189, 189, 189), // #BDBDBD
+            tabUnselected = Color.rgb(189, 189, 189), // #BDBDBD：未選択でも読める明るいグレー
+            tabRippleUnselected = Color.argb(70, 255, 255, 255),
+            buttonBackground = Color.rgb(0x2C, 0x2C, 0x2E),
+            buttonText = Color.WHITE,
+            graphGrid = Color.rgb(0x3A, 0x3A, 0x3C),
+            graphText = Color.rgb(189, 189, 189)
+        )
+
+        // ライト：白基調。選択中タブの青＋白文字はダークと共通
+        private val LIGHT_PALETTE = Palette(
+            dark = false,
+            background = Color.rgb(0xFA, 0xFA, 0xFA),
+            barSurface = Color.rgb(0xF0, 0xF0, 0xF0),
+            divider = Color.rgb(0xC8, 0xC8, 0xC8),
+            textPrimary = Color.rgb(0x21, 0x21, 0x21),
+            textSecondary = Color.rgb(0x61, 0x61, 0x61),
+            tabUnselected = Color.rgb(0x61, 0x61, 0x61),
+            tabRippleUnselected = Color.argb(40, 0, 0, 0),
+            buttonBackground = Color.rgb(0xE0, 0xE0, 0xE0),
+            buttonText = Color.rgb(0x21, 0x21, 0x21),
+            graphGrid = Color.rgb(0xD6, 0xD6, 0xD6),
+            graphText = Color.rgb(0x61, 0x61, 0x61)
+        )
     }
+
+    /** 有効なテーマパレット（onCreateでbuildUiより前に解決する） */
+    private lateinit var palette: Palette
 
     // ---- ホーム画面のView ----
     private lateinit var inputGB: EditText
@@ -127,10 +185,36 @@ class MainActivity : Activity() {
         }
     }
 
+    /** テーマ設定の読み書き（SharedPreferences "settings" / key "theme_mode"、既定はシステム連動） */
+    private fun loadThemeMode(): Int =
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_THEME_MODE, THEME_SYSTEM)
+
+    private fun saveThemeMode(mode: Int) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_THEME_MODE, mode).apply()
+    }
+
+    /** 設定値＋システムのダークモード設定から、実際にダークパレットを使うか決める */
+    private fun isDarkEffective(mode: Int): Boolean = when (mode) {
+        THEME_LIGHT -> false
+        THEME_DARK -> true
+        else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) {
             selectedTab = savedInstanceState.getInt(STATE_TAB, TAB_HOME)
+        }
+        palette = if (isDarkEffective(loadThemeMode())) DARK_PALETTE else LIGHT_PALETTE
+        // ステータスバーもパレットに合わせる（ライト時はアイコンを暗色にする）
+        window.statusBarColor = palette.background
+        if (!palette.dark) {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or
+                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
         buildUi()
         showTab(selectedTab)
@@ -167,6 +251,7 @@ class MainActivity : Activity() {
     private fun buildUi() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundColor(palette.background)
         }
 
         // コンテンツ領域（3画面を重ねて表示切替）
@@ -179,13 +264,13 @@ class MainActivity : Activity() {
         content.addView(settingsPage)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        // ボトムバー（常に表示）。少し浮かせた濃い面色でコンテンツ領域（純黒）と分離する。
-        val divider = View(this).apply { setBackgroundColor(Color.rgb(189, 189, 189)) }
+        // ボトムバー（常に表示）。面色でコンテンツ領域と分離する。
+        val divider = View(this).apply { setBackgroundColor(palette.divider) }
         root.addView(divider, LinearLayout.LayoutParams(-1, dp(1)))
 
         val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(BAR_SURFACE)
+            setBackgroundColor(palette.barSurface)
             // ジェスチャーバーのピルと重ならないよう、ナビゲーションバーの下インセットを
             // バー自身の下パディングにする。バーの背景色はインセット領域まで伸び、
             // ボタン（コンテンツ）だけがインセット分持ち上がる。
@@ -245,7 +330,9 @@ class MainActivity : Activity() {
 
     /** タブの背景：押下時のリップル付き。選択中は青ベタ、未選択はバーの面色が透ける透明 */
     private fun tabBackground(selected: Boolean): RippleDrawable {
-        val rippleColor = ColorStateList.valueOf(Color.argb(70, 255, 255, 255))
+        val rippleColor = ColorStateList.valueOf(
+            if (selected) Color.argb(70, 255, 255, 255) else palette.tabRippleUnselected
+        )
         val content = ColorDrawable(if (selected) TAB_SELECTED else Color.TRANSPARENT)
         return RippleDrawable(rippleColor, content, null)
     }
@@ -259,7 +346,7 @@ class MainActivity : Activity() {
         tabViews.forEachIndexed { i, t ->
             val selected = i == index
             t.container.background = tabBackground(selected)
-            val color = if (selected) Color.WHITE else TAB_UNSELECTED
+            val color = if (selected) Color.WHITE else palette.tabUnselected
             t.icon.setTextColor(color)
             t.label.setTextColor(color)
         }
@@ -283,6 +370,7 @@ class MainActivity : Activity() {
             text = getString(R.string.app_name)
             textSize = 26f
             gravity = Gravity.CENTER
+            setTextColor(palette.textPrimary)
         }
         root.addView(title)
 
@@ -290,16 +378,23 @@ class MainActivity : Activity() {
             text = getString(R.string.app_subtitle)
             textSize = 13f
             gravity = Gravity.CENTER
+            setTextColor(palette.textSecondary)
         }
         root.addView(sub)
 
-        val inputLabel = TextView(this).apply { text = getString(R.string.target_label); textSize = 15f }
+        val inputLabel = TextView(this).apply {
+            text = getString(R.string.target_label)
+            textSize = 15f
+            setTextColor(palette.textPrimary)
+        }
         root.addView(inputLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
 
         inputGB = EditText(this).apply {
             setText("10")
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             textSize = 20f
+            setTextColor(palette.textPrimary)
+            setHintTextColor(palette.textSecondary)
         }
         root.addView(inputGB)
 
@@ -307,6 +402,7 @@ class MainActivity : Activity() {
         for (gb in listOf(1, 10, 50, 100)) {
             val b = Button(this).apply {
                 text = getString(R.string.preset_gb, gb)
+                styleButton(this)
                 setOnClickListener { inputGB.setText(gb.toString()) }
             }
             presetRow.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
@@ -317,12 +413,14 @@ class MainActivity : Activity() {
             text = getString(R.string.mobile_only)
             isChecked = true
             textSize = 15f
+            setTextColor(palette.textPrimary)
         }
         root.addView(mobileOnlyCheck, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         startStopButton = Button(this).apply {
             text = getString(R.string.start)
             textSize = 18f
+            styleButton(this)
             setOnClickListener { onStartStop() }
         }
         root.addView(startStopButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -351,6 +449,7 @@ class MainActivity : Activity() {
         shareResultButton = Button(this).apply {
             text = getString(R.string.share_result)
             isEnabled = false
+            styleButton(this)
             setOnClickListener { shareLastResult() }
         }
         root.addView(shareResultButton)
@@ -373,12 +472,14 @@ class MainActivity : Activity() {
             text = getString(R.string.tab_speed)
             textSize = 24f
             gravity = Gravity.CENTER
+            setTextColor(palette.textPrimary)
         })
 
         // --- スピードテスト ---
         speedTestButton = Button(this).apply {
             text = getString(R.string.speed_test_button, DownloadService.TEST_DURATION_SEC)
             textSize = 16f
+            styleButton(this)
             setOnClickListener { onSpeedTest() }
         }
         root.addView(speedTestButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -387,23 +488,30 @@ class MainActivity : Activity() {
         root.addView(speedTestResultText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         // --- 統合グラフ（実行中はライブ表示、アイドル時は履歴推移に自動切替） ---
-        graphModeLabel = TextView(this).apply { textSize = 15f }
+        graphModeLabel = TextView(this).apply {
+            textSize = 15f
+            setTextColor(palette.textPrimary)
+        }
         root.addView(graphModeLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
         speedGraph = SpeedGraphView(this)
+        speedGraph.applyPalette(palette.background, palette.graphGrid, palette.graphText)
         root.addView(speedGraph, LinearLayout.LayoutParams(-1, dp(190)).apply { topMargin = dp(4) })
 
         // --- グラフに付随する共有アクション：テキスト共有 / CSV共有 / 消去 ---
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         shareTextBtn = Button(this).apply {
             text = getString(R.string.share)
+            styleButton(this)
             setOnClickListener { shareHistoryText() }
         }
         shareCsvBtn = Button(this).apply {
             text = getString(R.string.share_csv)
+            styleButton(this)
             setOnClickListener { shareHistoryCsv() }
         }
         clearBtn = Button(this).apply {
             text = getString(R.string.clear_history)
+            styleButton(this)
             setOnClickListener { confirmClearHistory() }
         }
         btnRow.addView(shareTextBtn, LinearLayout.LayoutParams(0, -2, 1f))
@@ -434,12 +542,14 @@ class MainActivity : Activity() {
             historyListLayout.addView(TextView(this).apply {
                 text = getString(R.string.history_empty)
                 textSize = 14f
+                setTextColor(palette.textSecondary)
             })
         } else {
             for (r in historyRecords) {
                 historyListLayout.addView(TextView(this).apply {
                     text = HistoryStore.recordLine(this@MainActivity, r)
                     textSize = 14f
+                    setTextColor(palette.textPrimary)
                     setPadding(0, dp(6), 0, dp(6))
                 })
             }
@@ -508,19 +618,51 @@ class MainActivity : Activity() {
             text = getString(R.string.settings_title)
             textSize = 24f
             gravity = Gravity.CENTER
+            setTextColor(palette.textPrimary)
         })
+
+        // --- セクション: テーマ（システム連動／ライト／ダーク） ---
+        val themeSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        themeSection.addView(sectionHeader(getString(R.string.settings_section_theme)))
+        val themeOptions = listOf(
+            THEME_SYSTEM to R.string.theme_system,
+            THEME_LIGHT to R.string.theme_light,
+            THEME_DARK to R.string.theme_dark
+        )
+        val currentMode = loadThemeMode()
+        val themeGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val radioByMode = mutableMapOf<Int, RadioButton>()
+        for ((mode, labelRes) in themeOptions) {
+            val rb = RadioButton(this).apply {
+                text = getString(labelRes)
+                textSize = 15f
+                setTextColor(palette.textPrimary)
+                buttonTintList = ColorStateList.valueOf(TAB_SELECTED)
+                id = View.generateViewId()
+            }
+            radioByMode[mode] = rb
+            themeGroup.addView(rb)
+        }
+        // 初期チェックを済ませてからリスナーを付ける（構築中の誤発火防止）
+        radioByMode[currentMode]?.let { themeGroup.check(it.id) }
+        themeGroup.setOnCheckedChangeListener { _, checkedId ->
+            val chosen = radioByMode.entries.firstOrNull { it.value.id == checkedId }?.key
+            if (chosen != null && chosen != loadThemeMode()) {
+                saveThemeMode(chosen)
+                recreate() // パレットを切り替えてUIを再構築する
+            }
+        }
+        themeSection.addView(themeGroup, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        root.addView(themeSection, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
 
         // --- セクション: Live Updates ---
         val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        section.addView(TextView(this).apply {
-            text = getString(R.string.settings_section_live_updates)
-            textSize = 17f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        })
+        section.addView(sectionHeader(getString(R.string.settings_section_live_updates)))
         liveUpdateText = infoText()
         section.addView(liveUpdateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         liveUpdateButton = Button(this).apply {
             text = getString(R.string.live_updates_settings)
+            styleButton(this)
             setOnClickListener { openPromotedNotificationSettings() }
         }
         section.addView(liveUpdateButton)
@@ -529,9 +671,18 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = getString(R.string.settings_note)
             textSize = 13f
+            setTextColor(palette.textSecondary)
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
 
         return ScrollView(this).apply { addView(root) }
+    }
+
+    /** 設定画面のセクション見出し */
+    private fun sectionHeader(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 17f
+        setTypeface(typeface, android.graphics.Typeface.BOLD)
+        setTextColor(palette.textPrimary)
     }
 
     /** Live Updates（Android 16以降）の許可状態を表示する。API 35以下では通常通知になる旨を出す。 */
@@ -579,7 +730,16 @@ class MainActivity : Activity() {
     // ホーム画面の操作・表示更新
     // ================================================================
 
-    private fun infoText(): TextView = TextView(this).apply { textSize = 15f }
+    private fun infoText(): TextView = TextView(this).apply {
+        textSize = 15f
+        setTextColor(palette.textPrimary)
+    }
+
+    /** ボタンの配色をパレットに合わせる（テーマ標準の押下状態は背景tintで維持する） */
+    private fun styleButton(b: Button) {
+        b.backgroundTintList = ColorStateList.valueOf(palette.buttonBackground)
+        b.setTextColor(palette.buttonText)
+    }
 
     private fun onStartStop() {
         if (DownloadService.isRunning) {

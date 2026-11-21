@@ -42,6 +42,10 @@
 
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>
+    <string name="settings_section_theme">Theme</string>
+    <string name="theme_system">Follow system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="settings_section_live_updates">Live Updates</string>
     <string name="settings_note">More settings will be added here in the future.</string>
 

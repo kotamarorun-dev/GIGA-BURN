@@ -42,9 +42,20 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
     private val historyPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(76, 175, 80); style = Paint.Style.FILL
     }
-    private val gridPaint = Paint().apply { color = Color.LTGRAY; strokeWidth = 1f }
+    private val gridPaint = Paint().apply { color = Color.rgb(0x3A, 0x3A, 0x3C); strokeWidth = 1f }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.DKGRAY; textSize = 11f * resources.displayMetrics.scaledDensity
+        color = Color.rgb(189, 189, 189); textSize = 11f * resources.displayMetrics.scaledDensity
+    }
+
+    /**
+     * テーマパレットのうちグラフに関わる色（背景・グリッド・軸テキスト）を適用する。
+     * 線の色（ライブ=青／履歴=緑）はテーマによらず固定で、両テーマで判別できるようにしてある。
+     */
+    fun applyPalette(background: Int, grid: Int, axisText: Int) {
+        setBackgroundColor(background)
+        gridPaint.color = grid
+        textPaint.color = axisText
+        invalidate()
     }
 
     /** ライブ表示へ切り替え、サンプルを差し替える */
