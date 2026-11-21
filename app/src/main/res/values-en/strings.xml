@@ -28,7 +28,16 @@
     <string name="last_result_none">Last result: none yet</string>
     <string name="share_result">Share result</string>
     <string name="share_result_subject">GIGA-BURN!! result</string>
-    <string name="history_button">History</string>
+
+    <!-- Bottom bar / tabs -->
+    <string name="tab_home">Home</string>
+    <string name="tab_history">History</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_live_updates">Live Updates</string>
+    <string name="settings_note">More settings will be added here in the future.</string>
 
     <!-- Live Updates -->
     <string name="live_updates_settings">Open Live Updates settings</string>

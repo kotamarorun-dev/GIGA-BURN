@@ -2,10 +2,12 @@ package jp.kota.gigaburn
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,16 +17,35 @@ import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import java.io.File
 
+/**
+ * メイン画面。ボトムバーで「ホーム / 履歴 / 設定」の3画面を切り替える単一Activity構成。
+ * - ホーム: バーン／スピードテストの操作と進捗、ライブ速度グラフ
+ * - 履歴: 旧HistoryActivityの内容（推移グラフ＋一覧＋共有＋消去）
+ * - 設定: 当面はLive Updatesの許可状態のみ（セクション形式で拡張可能に）
+ * ダウンロードはフォアグラウンドサービス側で動くため、タブ切替では中断されない。
+ */
 class MainActivity : Activity() {
 
+    companion object {
+        private const val TAB_HOME = 0
+        private const val TAB_HISTORY = 1
+        private const val TAB_SETTINGS = 2
+        private const val STATE_TAB = "selected_tab"
+    }
+
+    // ---- ホーム画面のView ----
     private lateinit var inputGB: EditText
     private lateinit var mobileOnlyCheck: CheckBox
     private lateinit var startStopButton: Button
@@ -38,8 +59,20 @@ class MainActivity : Activity() {
     private lateinit var resultText: TextView
     private lateinit var shareResultButton: Button
     private lateinit var liveGraph: LiveGraphView
+
+    // ---- 設定画面のView ----
     private lateinit var liveUpdateText: TextView
     private lateinit var liveUpdateButton: Button
+
+    // ---- 画面切替まわり ----
+    private lateinit var homePage: View
+    private lateinit var historyPage: LinearLayout
+    private lateinit var settingsPage: View
+    private val tabButtons = mutableListOf<Button>()
+    private var selectedTab = TAB_HOME
+
+    // ---- 履歴画面の状態 ----
+    private var historyRecords: List<HistoryStore.Record> = emptyList()
 
     // ライブグラフ用：1秒ごとに採取したMbpsサンプル（停止後も保持し、開始時にリセット）
     private val liveSamples = mutableListOf<Double>()
@@ -61,6 +94,9 @@ class MainActivity : Activity() {
         if (running && !wasRunning) {
             liveSamples.clear() // セッション開始でリセット
         }
+        if (!running && wasRunning && selectedTab == TAB_HISTORY) {
+            refreshHistory() // 履歴タブ表示中にセッションが終わったら一覧を最新化
+        }
         wasRunning = running
         pollCount++
         if (running && pollCount % 2 == 0) {
@@ -71,7 +107,11 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState != null) {
+            selectedTab = savedInstanceState.getInt(STATE_TAB, TAB_HOME)
+        }
         buildUi()
+        showTab(selectedTab)
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -79,10 +119,16 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(STATE_TAB, selectedTab)
+    }
+
     override fun onResume() {
         super.onResume()
         handler.post(poll)
         if (::liveUpdateText.isInitialized) refreshLiveUpdateStatus()
+        if (selectedTab == TAB_HISTORY) refreshHistory()
     }
 
     override fun onPause() {
@@ -92,7 +138,82 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    // ================================================================
+    // 画面構築
+    // ================================================================
+
     private fun buildUi() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // コンテンツ領域（3画面を重ねて表示切替）
+        val content = FrameLayout(this)
+        homePage = buildHomePage()
+        historyPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(20), dp(16), dp(16))
+        }
+        settingsPage = buildSettingsPage()
+        content.addView(homePage)
+        content.addView(historyPage)
+        content.addView(settingsPage)
+        root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        // ボトムバー（常に表示）
+        val divider = View(this).apply { setBackgroundColor(Color.rgb(189, 189, 189)) }
+        root.addView(divider, LinearLayout.LayoutParams(-1, dp(1)))
+
+        val bottomBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val tabs = listOf(
+            Triple("⌂", R.string.tab_home, TAB_HOME),
+            Triple("↺", R.string.tab_history, TAB_HISTORY),
+            Triple("⚙", R.string.tab_settings, TAB_SETTINGS)
+        )
+        for ((glyph, labelRes, index) in tabs) {
+            val b = Button(this).apply {
+                text = glyph + "\n" + getString(labelRes)
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setOnClickListener { showTab(index) }
+            }
+            tabButtons.add(b)
+            bottomBar.addView(b, LinearLayout.LayoutParams(0, dp(60), 1f))
+        }
+        root.addView(bottomBar)
+
+        setContentView(root)
+        refreshHistory()
+        refreshUi()
+        refreshLiveUpdateStatus()
+    }
+
+    /** タブ切替：対象ページだけを表示し、ボトムバーのハイライトを更新する */
+    private fun showTab(index: Int) {
+        selectedTab = index
+        homePage.visibility = if (index == TAB_HOME) View.VISIBLE else View.GONE
+        historyPage.visibility = if (index == TAB_HISTORY) View.VISIBLE else View.GONE
+        settingsPage.visibility = if (index == TAB_SETTINGS) View.VISIBLE else View.GONE
+        tabButtons.forEachIndexed { i, b ->
+            if (i == index) {
+                b.setBackgroundColor(Color.rgb(33, 150, 243))
+                b.setTextColor(Color.WHITE)
+            } else {
+                b.setBackgroundColor(Color.TRANSPARENT)
+                b.setTextColor(Color.rgb(66, 66, 66))
+            }
+        }
+        when (index) {
+            TAB_HISTORY -> refreshHistory()
+            TAB_SETTINGS -> refreshLiveUpdateStatus()
+        }
+    }
+
+    // ================================================================
+    // ホーム画面
+    // ================================================================
+
+    private fun buildHomePage(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(24), dp(20), dp(20))
@@ -190,29 +311,156 @@ class MainActivity : Activity() {
         }
         root.addView(shareResultButton)
 
-        val historyButton = Button(this).apply {
-            text = getString(R.string.history_button)
-            setOnClickListener { startActivity(Intent(this@MainActivity, HistoryActivity::class.java)) }
+        return ScrollView(this).apply { addView(root) }
+    }
+
+    // ================================================================
+    // 履歴画面（旧HistoryActivityの内容をタブ化）
+    // ================================================================
+
+    private fun refreshHistory() {
+        if (!::historyPage.isInitialized) return
+        historyRecords = HistoryStore.load(this)
+        historyPage.removeAllViews()
+
+        historyPage.addView(TextView(this).apply {
+            text = getString(R.string.history_title)
+            textSize = 24f
+            gravity = Gravity.CENTER
+        })
+
+        // グラフ：直近30件を古い順に
+        val chart = HistoryChartView(this)
+        chart.setRecords(historyRecords.take(30).reversed())
+        historyPage.addView(chart, LinearLayout.LayoutParams(-1, dp(190)).apply { topMargin = dp(12) })
+
+        // ボタン行：テキスト共有 / CSV共有 / 消去
+        val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val shareTextBtn = Button(this).apply {
+            text = getString(R.string.share)
+            isEnabled = historyRecords.isNotEmpty()
+            setOnClickListener { shareHistoryText() }
         }
-        root.addView(historyButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val shareCsvBtn = Button(this).apply {
+            text = getString(R.string.share_csv)
+            isEnabled = historyRecords.isNotEmpty()
+            setOnClickListener { shareHistoryCsv() }
+        }
+        val clearBtn = Button(this).apply {
+            text = getString(R.string.clear_history)
+            isEnabled = historyRecords.isNotEmpty()
+            setOnClickListener { confirmClearHistory() }
+        }
+        btnRow.addView(shareTextBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        btnRow.addView(shareCsvBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        btnRow.addView(clearBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        historyPage.addView(btnRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // 一覧（スクロール）
+        val listLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (historyRecords.isEmpty()) {
+            listLayout.addView(TextView(this).apply {
+                text = getString(R.string.history_empty)
+                textSize = 14f
+            })
+        } else {
+            for (r in historyRecords) {
+                listLayout.addView(TextView(this).apply {
+                    text = HistoryStore.recordLine(this@MainActivity, r)
+                    textSize = 14f
+                    setPadding(0, dp(6), 0, dp(6))
+                })
+            }
+        }
+        val scroll = ScrollView(this).apply { addView(listLayout) }
+        historyPage.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
+    }
+
+    private fun shareHistoryText() {
+        if (historyRecords.isEmpty()) return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, HistoryStore.summaryText(this@MainActivity, historyRecords))
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_history_subject))
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.share_history_chooser)))
+    }
+
+    private fun shareHistoryCsv() {
+        if (historyRecords.isEmpty()) return
+        try {
+            val dir = File(cacheDir, "share").apply { mkdirs() }
+            val csvFile = File(dir, "gigaburn_history.csv")
+            csvFile.writeText(HistoryStore.csv(historyRecords))
+            val uri = ShareFileProvider.uriFor(csvFile)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_history_csv_subject))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, getString(R.string.share_history_csv_chooser)))
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.csv_failed_toast), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmClearHistory() {
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.clear_history))
+            .setMessage(getString(R.string.clear_dialog_message, historyRecords.size))
+            .setPositiveButton(getString(R.string.clear_confirm)) { _, _ ->
+                HistoryStore.clear(this)
+                Toast.makeText(this, getString(R.string.cleared_toast), Toast.LENGTH_SHORT).show()
+                refreshHistory()
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    // ================================================================
+    // 設定画面（セクション形式。項目は今後ここへ追加する）
+    // ================================================================
+
+    private fun buildSettingsPage(): View {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(24), dp(20), dp(20))
+        }
+
+        root.addView(TextView(this).apply {
+            text = getString(R.string.settings_title)
+            textSize = 24f
+            gravity = Gravity.CENTER
+        })
+
+        // --- セクション: Live Updates ---
+        val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        section.addView(TextView(this).apply {
+            text = getString(R.string.settings_section_live_updates)
+            textSize = 17f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
         liveUpdateText = infoText()
-        root.addView(liveUpdateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
-
+        section.addView(liveUpdateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         liveUpdateButton = Button(this).apply {
             text = getString(R.string.live_updates_settings)
             setOnClickListener { openPromotedNotificationSettings() }
         }
-        root.addView(liveUpdateButton)
+        section.addView(liveUpdateButton)
+        root.addView(section, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
 
-        val scroll = ScrollView(this).apply { addView(root) }
-        setContentView(scroll)
-        refreshUi()
-        refreshLiveUpdateStatus()
+        root.addView(TextView(this).apply {
+            text = getString(R.string.settings_note)
+            textSize = 13f
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+
+        return ScrollView(this).apply { addView(root) }
     }
 
     /** Live Updates（Android 16以降）の許可状態を表示する。API 35以下では通常通知になる旨を出す。 */
     private fun refreshLiveUpdateStatus() {
+        if (!::liveUpdateText.isInitialized) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
             liveUpdateText.text = getString(R.string.lu_unsupported)
             liveUpdateButton.isEnabled = false
@@ -250,6 +498,10 @@ class MainActivity : Activity() {
             // それもダメなら何もしない（状態表示のみ）
         }
     }
+
+    // ================================================================
+    // ホーム画面の操作・表示更新
+    // ================================================================
 
     private fun infoText(): TextView = TextView(this).apply { textSize = 15f }
 

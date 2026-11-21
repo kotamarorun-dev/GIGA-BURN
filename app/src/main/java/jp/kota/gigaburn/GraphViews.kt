@@ -88,7 +88,7 @@ class LiveGraphView(ctx: Context) : View(ctx) {
     }
 }
 
-/** 履歴グラフ：保存済み履歴の平均Mbpsを時系列の折れ線で描く（HistoryActivity用）。 */
+/** 履歴グラフ：保存済み履歴の平均Mbpsを時系列の折れ線で描く（履歴タブ用）。 */
 class HistoryChartView(ctx: Context) : View(ctx) {
 
     /** 古い順（左→右）に並んだレコード */

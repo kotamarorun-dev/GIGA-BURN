@@ -1,10 +1,20 @@
-# ギガバーン！！ / GIGA-BURN!!（プロトタイプ v0.4.0）
+# ギガバーン！！ / GIGA-BURN!!（プロトタイプ v0.5.0）
 
 目標のギガ数を設定してスタートすると、その量に到達するまでダウンロードし続けて自動で止まるAndroidアプリ。「無制限プランなのにギガを使い切れていない」という発想から生まれた実験作です。
 
 - パッケージ: `jp.kota.gigaburn`
 - 対応: Android 10（API 29）以上 / ビルド: target・compile SDK 36、Kotlin、通常のViewのみ（Compose・チャートライブラリ不使用）
 - 言語: **日本語 / 英語対応**（端末の言語設定に従います。UI文言はすべて文字列リソース化済み：`values/strings.xml` が日本語、`values-en/strings.xml` が英語）
+
+## v0.5.0の変更点
+
+画面構成を**ボトムバー付きの3タブ構成**に変更しました。単一のMainActivity内で画面を切り替える方式で、ボトムバーは全画面で常に表示されます。
+
+- **ホーム**: バーン／スピードテストの操作画面。目標GB入力・プリセット、スタート／ストップ、スピードテスト、進捗・速度表示、ライブ速度グラフ、直近結果と「結果を共有」、「モバイル回線のみ」トグルはここにあります。
+- **履歴**: 旧HistoryActivityの内容をそのままタブ化しました。平均Mbpsの推移グラフ、履歴一覧、テキスト共有／CSV共有、「履歴を消去」がここにあります。履歴データの保存形式（`filesDir/history.json`）は従来どおりで、旧バージョンの履歴もそのまま読めます。独立したHistoryActivityは廃止しました。
+- **設定**: 当面はLive Updates（昇格した継続中通知）の許可状態表示と設定画面を開くボタンだけを配置しています。セクション形式のレイアウトにしてあり、設定項目は今後ここへ追加していきます。
+
+タブを切り替えても、実行中のバーン／スピードテスト（フォアグラウンドサービス）は中断されません。ホームに戻ると進捗表示とライブ速度グラフの更新がそのまま続きます。
 
 ## v0.4.0の変更点
 
@@ -43,7 +53,7 @@
 - 1件の内容: `timestampMs`（日時）, `type`（スピードテスト／バーン）, `avgMbps`（平均）, `maxMbps`（最大）, `bytes`（消費バイト数）, `seconds`（時間・秒）, `source`（接続先）
   - バーンの平均は「総バイト数 ÷ 実経過秒」、最大は1秒サンプルの最大値です。
 
-メイン画面の「履歴」ボタンで履歴画面（HistoryActivity）が開きます。
+履歴はボトムバーの「履歴」タブで開きます（v0.5.0でタブ化、旧HistoryActivityは廃止）。
 
 - 上部に直近30件の**平均Mbpsの推移を折れ線グラフ**（Canvas描画）で表示。Y軸はMbps、X軸に最初と最後の日時ラベル。
 - 下部に履歴一覧（日時・種別・平均Mbps・消費GB・接続先）をスクロール表示。
@@ -53,8 +63,8 @@
 
 結果を他のアプリ（チャット等）へ渡せます。いずれも標準のシェアシート（`Intent.createChooser`）を使います。
 
-- **履歴画面の「共有」ボタン**: 保存済み履歴全体を人間可読なテキスト（1行1件：日時・種別・平均/最大Mbps・消費GB・時間・接続先）で共有します。
-- **履歴画面の「CSVで共有」ボタン**: 履歴をCSV（ヘッダ `timestamp,type,avg_mbps,max_mbps,gb,seconds,source`）に書き出してファイル共有します。CSVは `cacheDir/share/gigaburn_history.csv` に作り、自前のContentProvider（`jp.kota.gigaburn.fileprovider`、cacheDir/share配下を読み取り専用公開）経由で渡します。
+- **履歴タブの「共有」ボタン**: 保存済み履歴全体を人間可読なテキスト（1行1件：日時・種別・平均/最大Mbps・消費GB・時間・接続先）で共有します。
+- **履歴タブの「CSVで共有」ボタン**: 履歴をCSV（ヘッダ `timestamp,type,avg_mbps,max_mbps,gb,seconds,source`）に書き出してファイル共有します。CSVは `cacheDir/share/gigaburn_history.csv` に作り、自前のContentProvider（`jp.kota.gigaburn.fileprovider`、cacheDir/share配下を読み取り専用公開）経由で渡します。
 - **メイン画面の「結果を共有」ボタン**: 直近セッション（スピードテスト／バーン共通）の結果1件を詳しいテキスト形式で共有します。セッション終了後に有効になります。
 
 ## Live Updates（v0.2.0で追加）
@@ -63,7 +73,7 @@ Android 16で追加された「Live Updates」（iOSのライブアクティビ�
 
 - 実装は公式ドキュメント準拠です：`Notification.ProgressStyle`（進捗バー）、昇格要求（`android.requestPromotedOngoing` extras／対応環境では `setRequestPromotedOngoing`）、マニフェストへの `POST_PROMOTED_NOTIFICATIONS` 宣言、ステータスバーチップ用の `setShortCriticalText`（進捗％表示）。
 - **Android 16（API 36）以降のみ**の機能です。API 35以下では従来どおり通常の進捗通知になります。
-- 昇格には端末設定での許可が必要な場合があります。アプリ内下部に現在の許可状態（`NotificationManager.canPostPromotedNotifications()`）が表示され、ボタンから設定画面（無い環境ではアプリの通知設定）を開けます。許可は端末・ユーザー設定に依存し、アプリ側で保証はできません。
+- 昇格には端末設定での許可が必要な場合があります。設定タブに現在の許可状態（`NotificationManager.canPostPromotedNotifications()`）が表示され、ボタンから設定画面（無い環境ではアプリの通知設定）を開けます。許可は端末・ユーザー設定に依存し、アプリ側で保証はできません。
 - 通知の更新は監視スレッドの約1秒間隔に合わせています。完了時は昇格なしの通常通知になります。通知には「ストップ」アクションも付けました。
 
 ## 仕組み

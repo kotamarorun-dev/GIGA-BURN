@@ -28,7 +28,16 @@
     <string name="last_result_none">直近の結果：まだありません</string>
     <string name="share_result">結果を共有</string>
     <string name="share_result_subject">ギガバーン！！結果</string>
-    <string name="history_button">履歴</string>
+
+    <!-- ボトムバー／タブ -->
+    <string name="tab_home">ホーム</string>
+    <string name="tab_history">履歴</string>
+    <string name="tab_settings">設定</string>
+
+    <!-- 設定画面 -->
+    <string name="settings_title">設定</string>
+    <string name="settings_section_live_updates">Live Updates</string>
+    <string name="settings_note">設定項目は今後ここに追加されていきます。</string>
 
     <!-- Live Updates -->
     <string name="live_updates_settings">Live Updatesの設定を開く</string>
