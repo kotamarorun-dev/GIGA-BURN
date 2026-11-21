@@ -11,36 +11,74 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 
-/** ライブ速度グラフ：直近のMbpsサンプルを折れ線で描く（MainActivity用）。 */
-class LiveGraphView(ctx: Context) : View(ctx) {
+/**
+ * 統合速度グラフ（スピードタブ用）：旧LiveGraphViewと旧HistoryChartViewを1つに統合したView。
+ * - LIVEモード: セッション実行中。直近60秒の1秒サンプルをローリング表示する。
+ * - HISTORYモード: アイドル時。保存済み履歴の平均Mbpsの推移を表示する。
+ * モード切替はMainActivity側がDownloadService.isRunningを見て行う。
+ */
+class SpeedGraphView(ctx: Context) : View(ctx) {
 
+    enum class Mode { LIVE, HISTORY }
+
+    var mode: Mode = Mode.HISTORY
+        private set
+
+    /** LIVEモード用：直近のMbpsサンプル */
     private var samples: List<Double> = emptyList()
 
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    /** HISTORYモード用：古い順（左→右）に並んだレコード */
+    private var records: List<HistoryStore.Record> = emptyList()
+
+    private val liveLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(33, 150, 243); style = Paint.Style.STROKE; strokeWidth = 2.5f
     }
-    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val liveFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(50, 33, 150, 243); style = Paint.Style.FILL
+    }
+    private val historyLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(76, 175, 80); style = Paint.Style.STROKE; strokeWidth = 2.5f
+    }
+    private val historyPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(76, 175, 80); style = Paint.Style.FILL
     }
     private val gridPaint = Paint().apply { color = Color.LTGRAY; strokeWidth = 1f }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.DKGRAY; textSize = 11f * resources.displayMetrics.scaledDensity
     }
 
-    fun update(newSamples: List<Double>) {
+    /** ライブ表示へ切り替え、サンプルを差し替える */
+    fun showLive(newSamples: List<Double>) {
+        mode = Mode.LIVE
         samples = newSamples
         invalidate()
     }
 
+    /** 履歴表示へ切り替え、レコードを差し替える */
+    fun showHistory(list: List<HistoryStore.Record>) {
+        mode = Mode.HISTORY
+        records = list
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        when (mode) {
+            Mode.LIVE -> drawLive(canvas)
+            Mode.HISTORY -> drawHistory(canvas)
+        }
+    }
+
+    // ---------------- LIVEモード（旧LiveGraphView） ----------------
+
     /** Y軸の天井：最低100Mbps、最大値の1.1倍を50Mbps単位で切り上げ */
-    private fun yCeil(): Double {
+    private fun liveYCeil(): Double {
         val m = samples.maxOrNull() ?: 0.0
         val raw = max(100.0, m * 1.1)
         return Math.ceil(raw / 50.0) * 50.0
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    private fun drawLive(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         val leftPad = 44f * resources.displayMetrics.density / 2 // 左の数値ラベル分
@@ -49,7 +87,7 @@ class LiveGraphView(ctx: Context) : View(ctx) {
         val plotW = w - leftPad - 8f
         val plotH = h - topPad - bottomPad
         if (plotW <= 0 || plotH <= 0) return
-        val yMax = yCeil()
+        val yMax = liveYCeil()
 
         // グリッドとY軸ラベル（0 / 半分 / 最大）
         for (frac in listOf(0.0, 0.5, 1.0)) {
@@ -83,35 +121,13 @@ class LiveGraphView(ctx: Context) : View(ctx) {
         val lastX = leftPad + stepX * (visible.size - 1)
         fill.lineTo(lastX, topPad + plotH)
         fill.close()
-        canvas.drawPath(fill, fillPaint)
-        canvas.drawPath(path, linePaint)
-    }
-}
-
-/** 履歴グラフ：保存済み履歴の平均Mbpsを時系列の折れ線で描く（履歴タブ用）。 */
-class HistoryChartView(ctx: Context) : View(ctx) {
-
-    /** 古い順（左→右）に並んだレコード */
-    private var records: List<HistoryStore.Record> = emptyList()
-
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(76, 175, 80); style = Paint.Style.STROKE; strokeWidth = 2.5f
-    }
-    private val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(76, 175, 80); style = Paint.Style.FILL
-    }
-    private val gridPaint = Paint().apply { color = Color.LTGRAY; strokeWidth = 1f }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.DKGRAY; textSize = 11f * resources.displayMetrics.scaledDensity
+        canvas.drawPath(fill, liveFillPaint)
+        canvas.drawPath(path, liveLinePaint)
     }
 
-    fun setRecords(list: List<HistoryStore.Record>) {
-        records = list
-        invalidate()
-    }
+    // ---------------- HISTORYモード（旧HistoryChartView） ----------------
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    private fun drawHistory(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         val leftPad = 44f * resources.displayMetrics.density / 2
@@ -142,9 +158,9 @@ class HistoryChartView(ctx: Context) : View(ctx) {
             else leftPad + plotW * i / (n - 1)
             val y = topPad + plotH - (plotH * (r.avgMbps / yMax).coerceIn(0.0, 1.0)).toFloat()
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            canvas.drawCircle(x, y, 3.5f, pointPaint)
+            canvas.drawCircle(x, y, 3.5f, historyPointPaint)
         }
-        if (n > 1) canvas.drawPath(path, linePaint)
+        if (n > 1) canvas.drawPath(path, historyLinePaint)
 
         // X軸：最初と最後の日時（ロケール既定の書式）
         val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())

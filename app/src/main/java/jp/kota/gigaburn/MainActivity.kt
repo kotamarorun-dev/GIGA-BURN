@@ -37,9 +37,10 @@ import android.widget.Toast
 import java.io.File
 
 /**
- * メイン画面。ボトムバーで「ホーム / 履歴 / 設定」の3画面を切り替える単一Activity構成。
- * - ホーム: バーン／スピードテストの操作と進捗、ライブ速度グラフ
- * - 履歴: 旧HistoryActivityの内容（推移グラフ＋一覧＋共有＋消去）
+ * メイン画面。ボトムバーで「ホーム / スピード / 設定」の3画面を切り替える単一Activity構成。
+ * - ホーム: バーンの操作と進捗、直近結果と共有
+ * - スピード: スピードテスト、統合グラフ（実行中はライブ／アイドル時は履歴推移）、
+ *   履歴の共有（テキスト／CSV）・消去、履歴一覧
  * - 設定: 当面はLive Updatesの許可状態のみ（セクション形式で拡張可能に）
  * ダウンロードはフォアグラウンドサービス側で動くため、タブ切替では中断されない。
  */
@@ -47,7 +48,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val TAB_HOME = 0
-        private const val TAB_HISTORY = 1
+        private const val TAB_SPEED = 1
         private const val TAB_SETTINGS = 2
         private const val STATE_TAB = "selected_tab"
 
@@ -61,7 +62,6 @@ class MainActivity : Activity() {
     private lateinit var inputGB: EditText
     private lateinit var mobileOnlyCheck: CheckBox
     private lateinit var startStopButton: Button
-    private lateinit var speedTestButton: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var downloadedText: TextView
     private lateinit var speedText: TextView
@@ -70,7 +70,16 @@ class MainActivity : Activity() {
     private lateinit var statusTextView: TextView
     private lateinit var resultText: TextView
     private lateinit var shareResultButton: Button
-    private lateinit var liveGraph: LiveGraphView
+
+    // ---- スピード画面のView ----
+    private lateinit var speedTestButton: Button
+    private lateinit var speedTestResultText: TextView
+    private lateinit var graphModeLabel: TextView
+    private lateinit var speedGraph: SpeedGraphView
+    private lateinit var shareTextBtn: Button
+    private lateinit var shareCsvBtn: Button
+    private lateinit var clearBtn: Button
+    private lateinit var historyListLayout: LinearLayout
 
     // ---- 設定画面のView ----
     private lateinit var liveUpdateText: TextView
@@ -78,15 +87,15 @@ class MainActivity : Activity() {
 
     // ---- 画面切替まわり ----
     private lateinit var homePage: View
-    private lateinit var historyPage: LinearLayout
+    private lateinit var speedPage: LinearLayout
     private lateinit var settingsPage: View
     private val tabButtons = mutableListOf<Button>()
     private var selectedTab = TAB_HOME
 
-    // ---- 履歴画面の状態 ----
+    // ---- スピード画面の履歴状態 ----
     private var historyRecords: List<HistoryStore.Record> = emptyList()
 
-    // ライブグラフ用：1秒ごとに採取したMbpsサンプル（停止後も保持し、開始時にリセット）
+    // 統合グラフ（ライブ表示用）：1秒ごとに採取したMbpsサンプル（停止後も保持し、開始時にリセット）
     private val liveSamples = mutableListOf<Double>()
     private var pollCount = 0
     private var wasRunning = false
@@ -106,8 +115,8 @@ class MainActivity : Activity() {
         if (running && !wasRunning) {
             liveSamples.clear() // セッション開始でリセット
         }
-        if (!running && wasRunning && selectedTab == TAB_HISTORY) {
-            refreshHistory() // 履歴タブ表示中にセッションが終わったら一覧を最新化
+        if (!running && wasRunning && selectedTab == TAB_SPEED) {
+            refreshSpeedPage() // スピードタブ表示中にセッションが終わったら一覧・グラフを最新化
         }
         wasRunning = running
         pollCount++
@@ -140,7 +149,7 @@ class MainActivity : Activity() {
         super.onResume()
         handler.post(poll)
         if (::liveUpdateText.isInitialized) refreshLiveUpdateStatus()
-        if (selectedTab == TAB_HISTORY) refreshHistory()
+        if (selectedTab == TAB_SPEED) refreshSpeedPage()
     }
 
     override fun onPause() {
@@ -162,13 +171,10 @@ class MainActivity : Activity() {
         // コンテンツ領域（3画面を重ねて表示切替）
         val content = FrameLayout(this)
         homePage = buildHomePage()
-        historyPage = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(20), dp(16), dp(16))
-        }
+        speedPage = buildSpeedPage()
         settingsPage = buildSettingsPage()
         content.addView(homePage)
-        content.addView(historyPage)
+        content.addView(speedPage)
         content.addView(settingsPage)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -194,7 +200,7 @@ class MainActivity : Activity() {
         }
         val tabs = listOf(
             Triple("⌂", R.string.tab_home, TAB_HOME),
-            Triple("↺", R.string.tab_history, TAB_HISTORY),
+            Triple("⚡︎", R.string.tab_speed, TAB_SPEED),
             Triple("⚙", R.string.tab_settings, TAB_SETTINGS)
         )
         for ((glyph, labelRes, index) in tabs) {
@@ -212,7 +218,7 @@ class MainActivity : Activity() {
 
         setContentView(root)
         bottomBar.requestApplyInsets()
-        refreshHistory()
+        refreshSpeedPage()
         refreshUi()
         refreshLiveUpdateStatus()
     }
@@ -235,7 +241,7 @@ class MainActivity : Activity() {
     private fun showTab(index: Int) {
         selectedTab = index
         homePage.visibility = if (index == TAB_HOME) View.VISIBLE else View.GONE
-        historyPage.visibility = if (index == TAB_HISTORY) View.VISIBLE else View.GONE
+        speedPage.visibility = if (index == TAB_SPEED) View.VISIBLE else View.GONE
         settingsPage.visibility = if (index == TAB_SETTINGS) View.VISIBLE else View.GONE
         tabButtons.forEachIndexed { i, b ->
             val selected = i == index
@@ -243,7 +249,7 @@ class MainActivity : Activity() {
             b.setTextColor(if (selected) Color.WHITE else TAB_UNSELECTED)
         }
         when (index) {
-            TAB_HISTORY -> refreshHistory()
+            TAB_SPEED -> refreshSpeedPage()
             TAB_SETTINGS -> refreshLiveUpdateStatus()
         }
     }
@@ -306,13 +312,6 @@ class MainActivity : Activity() {
         }
         root.addView(startStopButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
-        speedTestButton = Button(this).apply {
-            text = getString(R.string.speed_test_button, DownloadService.TEST_DURATION_SEC)
-            textSize = 16f
-            setOnClickListener { onSpeedTest() }
-        }
-        root.addView(speedTestButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             progress = 0
@@ -330,15 +329,6 @@ class MainActivity : Activity() {
         root.addView(elapsedText)
         root.addView(etaText)
 
-        // ライブ速度グラフ
-        val graphLabel = TextView(this).apply {
-            text = getString(R.string.graph_live_label)
-            textSize = 15f
-        }
-        root.addView(graphLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
-        liveGraph = LiveGraphView(this)
-        root.addView(liveGraph, LinearLayout.LayoutParams(-1, dp(130)))
-
         // 直近結果と共有
         resultText = infoText().apply { textSize = 15f }
         root.addView(resultText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -354,65 +344,97 @@ class MainActivity : Activity() {
     }
 
     // ================================================================
-    // 履歴画面（旧HistoryActivityの内容をタブ化）
+    // スピード画面（スピードテスト＋統合グラフ＋履歴）
+    // レイアウト順: [スピードテストボタン＋結果] → [統合グラフ＋共有/CSV/消去] → [履歴一覧]
     // ================================================================
 
-    private fun refreshHistory() {
-        if (!::historyPage.isInitialized) return
-        historyRecords = HistoryStore.load(this)
-        historyPage.removeAllViews()
+    private fun buildSpeedPage(): LinearLayout {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(20), dp(16), dp(16))
+        }
 
-        historyPage.addView(TextView(this).apply {
-            text = getString(R.string.history_title)
+        root.addView(TextView(this).apply {
+            text = getString(R.string.tab_speed)
             textSize = 24f
             gravity = Gravity.CENTER
         })
 
-        // グラフ：直近30件を古い順に
-        val chart = HistoryChartView(this)
-        chart.setRecords(historyRecords.take(30).reversed())
-        historyPage.addView(chart, LinearLayout.LayoutParams(-1, dp(190)).apply { topMargin = dp(12) })
+        // --- スピードテスト ---
+        speedTestButton = Button(this).apply {
+            text = getString(R.string.speed_test_button, DownloadService.TEST_DURATION_SEC)
+            textSize = 16f
+            setOnClickListener { onSpeedTest() }
+        }
+        root.addView(speedTestButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
 
-        // ボタン行：テキスト共有 / CSV共有 / 消去
+        speedTestResultText = infoText()
+        root.addView(speedTestResultText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // --- 統合グラフ（実行中はライブ表示、アイドル時は履歴推移に自動切替） ---
+        graphModeLabel = TextView(this).apply { textSize = 15f }
+        root.addView(graphModeLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        speedGraph = SpeedGraphView(this)
+        root.addView(speedGraph, LinearLayout.LayoutParams(-1, dp(190)).apply { topMargin = dp(4) })
+
+        // --- グラフに付随する共有アクション：テキスト共有 / CSV共有 / 消去 ---
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val shareTextBtn = Button(this).apply {
+        shareTextBtn = Button(this).apply {
             text = getString(R.string.share)
-            isEnabled = historyRecords.isNotEmpty()
             setOnClickListener { shareHistoryText() }
         }
-        val shareCsvBtn = Button(this).apply {
+        shareCsvBtn = Button(this).apply {
             text = getString(R.string.share_csv)
-            isEnabled = historyRecords.isNotEmpty()
             setOnClickListener { shareHistoryCsv() }
         }
-        val clearBtn = Button(this).apply {
+        clearBtn = Button(this).apply {
             text = getString(R.string.clear_history)
-            isEnabled = historyRecords.isNotEmpty()
             setOnClickListener { confirmClearHistory() }
         }
         btnRow.addView(shareTextBtn, LinearLayout.LayoutParams(0, -2, 1f))
         btnRow.addView(shareCsvBtn, LinearLayout.LayoutParams(0, -2, 1f))
         btnRow.addView(clearBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        historyPage.addView(btnRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        root.addView(btnRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // 一覧（スクロール）
-        val listLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // --- 履歴一覧（スクロール） ---
+        historyListLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(historyListLayout) }
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
+
+        return root
+    }
+
+    /** スピード画面の動的部分（履歴一覧・共有ボタンの有効状態・アイドル時のグラフ）を最新化する */
+    private fun refreshSpeedPage() {
+        if (!::speedGraph.isInitialized) return
+        historyRecords = HistoryStore.load(this)
+
+        val hasRecords = historyRecords.isNotEmpty()
+        shareTextBtn.isEnabled = hasRecords
+        shareCsvBtn.isEnabled = hasRecords
+        clearBtn.isEnabled = hasRecords
+
+        historyListLayout.removeAllViews()
         if (historyRecords.isEmpty()) {
-            listLayout.addView(TextView(this).apply {
+            historyListLayout.addView(TextView(this).apply {
                 text = getString(R.string.history_empty)
                 textSize = 14f
             })
         } else {
             for (r in historyRecords) {
-                listLayout.addView(TextView(this).apply {
+                historyListLayout.addView(TextView(this).apply {
                     text = HistoryStore.recordLine(this@MainActivity, r)
                     textSize = 14f
                     setPadding(0, dp(6), 0, dp(6))
                 })
             }
         }
-        val scroll = ScrollView(this).apply { addView(listLayout) }
-        historyPage.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
+
+        // アイドル時はグラフを履歴モードにする（実行中はrefreshUiがライブ表示を維持する）
+        if (!DownloadService.isRunning) {
+            graphModeLabel.text = getString(R.string.graph_history_label)
+            speedGraph.showHistory(historyRecords.take(30).reversed())
+        }
     }
 
     private fun shareHistoryText() {
@@ -451,7 +473,7 @@ class MainActivity : Activity() {
             .setPositiveButton(getString(R.string.clear_confirm)) { _, _ ->
                 HistoryStore.clear(this)
                 Toast.makeText(this, getString(R.string.cleared_toast), Toast.LENGTH_SHORT).show()
-                refreshHistory()
+                refreshSpeedPage()
             }
             .setNegativeButton(getString(R.string.cancel), null)
             .show()
@@ -566,6 +588,7 @@ class MainActivity : Activity() {
 
     private fun onSpeedTest() {
         if (DownloadService.isRunning) return
+        // 「モバイル回線のみ」トグルはホーム画面にあるが、アプリ全体で共有する設定として読む
         val i = Intent(this, DownloadService::class.java).apply {
             action = DownloadService.ACTION_START_TEST
             putExtra(DownloadService.EXTRA_MOBILE_ONLY, mobileOnlyCheck.isChecked)
@@ -660,8 +683,35 @@ class MainActivity : Activity() {
             else -> getString(R.string.eta_none)
         }
 
-        // ライブグラフ（直近60秒）
-        liveGraph.update(liveSamples.takeLast(60))
+        // 統合グラフ：実行中はライブ（直近60秒）を表示し、終了したら履歴モードへ切り替える
+        if (running) {
+            graphModeLabel.text = getString(R.string.graph_live_label)
+            speedGraph.showLive(liveSamples.takeLast(60))
+        } else if (speedGraph.mode == SpeedGraphView.Mode.LIVE) {
+            // セッション終了直後の1回だけ履歴モードへ（保存済みの最新履歴を読み直す）
+            historyRecords = HistoryStore.load(this)
+            graphModeLabel.text = getString(R.string.graph_history_label)
+            speedGraph.showHistory(historyRecords.take(30).reversed())
+        }
+
+        // スピードテストの結果表示（スピードタブ上部）
+        speedTestResultText.text = when {
+            running && isTest -> getString(
+                R.string.speed_test_running,
+                DownloadService.testElapsedSec,
+                DownloadService.TEST_DURATION_SEC
+            )
+            DownloadService.hasLastResult &&
+                DownloadService.lastResultType == HistoryStore.TYPE_TEST -> getString(
+                R.string.speed_test_result_line,
+                DownloadService.lastResultAvgMbps,
+                DownloadService.lastResultMaxMbps,
+                DownloadService.formatGB(DownloadService.lastResultBytes),
+                DownloadService.lastResultSeconds,
+                HistoryStore.displaySource(this, DownloadService.lastResultSource)
+            )
+            else -> getString(R.string.speed_test_result_none)
+        }
 
         // 直近結果と共有ボタン
         if (DownloadService.hasLastResult && !running) {

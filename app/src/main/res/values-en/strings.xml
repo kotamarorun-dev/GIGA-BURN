@@ -31,8 +31,14 @@
 
     <!-- Bottom bar / tabs -->
     <string name="tab_home">Home</string>
-    <string name="tab_history">History</string>
+    <string name="tab_speed">Speed</string>
     <string name="tab_settings">Settings</string>
+
+    <!-- Speed tab -->
+    <string name="graph_history_label">Speed graph (history)</string>
+    <string name="speed_test_running">Speed test running… (%1$d sec / %2$d sec)</string>
+    <string name="speed_test_result_line">Speed test result: avg %1$.1f Mbps / max %2$.1f Mbps / used %3$s / %4$d sec / %5$s</string>
+    <string name="speed_test_result_none">Speed test result: none yet</string>
 
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>
@@ -68,8 +74,7 @@
     <string name="graph_avg_trend">Average speed (Mbps)</string>
     <string name="graph_no_history">No history yet</string>
 
-    <!-- History screen -->
-    <string name="history_title">History</string>
+    <!-- History on the Speed tab (share / clear) -->
     <string name="history_empty">No history yet. Run a burn or a speed test and it will show up here.</string>
     <string name="share">Share</string>
     <string name="share_csv">Share as CSV</string>

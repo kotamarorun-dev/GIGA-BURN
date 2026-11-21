@@ -31,8 +31,14 @@
 
     <!-- ボトムバー／タブ -->
     <string name="tab_home">ホーム</string>
-    <string name="tab_history">履歴</string>
+    <string name="tab_speed">スピード</string>
     <string name="tab_settings">設定</string>
+
+    <!-- スピードタブ -->
+    <string name="graph_history_label">速度グラフ（履歴）</string>
+    <string name="speed_test_running">スピードテスト実行中…（%1$d 秒 / %2$d 秒）</string>
+    <string name="speed_test_result_line">スピードテスト結果：平均 %1$.1f Mbps / 最大 %2$.1f Mbps / 消費 %3$s / %4$d 秒 / %5$s</string>
+    <string name="speed_test_result_none">スピードテスト結果：まだありません</string>
 
     <!-- 設定画面 -->
     <string name="settings_title">設定</string>
@@ -68,8 +74,7 @@
     <string name="graph_avg_trend">平均速度の推移（Mbps）</string>
     <string name="graph_no_history">履歴がありません</string>
 
-    <!-- 履歴画面 -->
-    <string name="history_title">履歴</string>
+    <!-- スピードタブの履歴（共有・消去） -->
     <string name="history_empty">履歴はまだありません。バーンかスピードテストを実行すると記録されます。</string>
     <string name="share">共有</string>
     <string name="share_csv">CSVで共有</string>
