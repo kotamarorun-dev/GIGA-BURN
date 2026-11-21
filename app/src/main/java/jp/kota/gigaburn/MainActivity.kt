@@ -7,7 +7,10 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -16,8 +19,12 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.RelativeSizeSpan
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -43,6 +50,11 @@ class MainActivity : Activity() {
         private const val TAB_HISTORY = 1
         private const val TAB_SETTINGS = 2
         private const val STATE_TAB = "selected_tab"
+
+        // ボトムバーの配色（v0.6で最適化）
+        private val BAR_SURFACE = Color.rgb(0x1C, 0x1C, 0x1E) // 純黒のコンテンツ領域と分ける面色
+        private val TAB_SELECTED = Color.rgb(33, 150, 243) // 選択中タブの青
+        private val TAB_UNSELECTED = Color.rgb(189, 189, 189) // #BDBDBD：未選択でも読める明るいグレー
     }
 
     // ---- ホーム画面のView ----
@@ -160,11 +172,26 @@ class MainActivity : Activity() {
         content.addView(settingsPage)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        // ボトムバー（常に表示）
+        // ボトムバー（常に表示）。少し浮かせた濃い面色でコンテンツ領域（純黒）と分離する。
         val divider = View(this).apply { setBackgroundColor(Color.rgb(189, 189, 189)) }
         root.addView(divider, LinearLayout.LayoutParams(-1, dp(1)))
 
-        val bottomBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(BAR_SURFACE)
+            // ジェスチャーバーのピルと重ならないよう、ナビゲーションバーの下インセットを
+            // バー自身の下パディングにする。バーの背景色はインセット領域まで伸び、
+            // ボタン（コンテンツ）だけがインセット分持ち上がる。
+            setOnApplyWindowInsetsListener { v, insets ->
+                val bottomInset = if (Build.VERSION.SDK_INT >= 30) {
+                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                } else {
+                    @Suppress("DEPRECATION") insets.systemWindowInsetBottom
+                }
+                v.setPadding(0, 0, 0, bottomInset)
+                insets
+            }
+        }
         val tabs = listOf(
             Triple("⌂", R.string.tab_home, TAB_HOME),
             Triple("↺", R.string.tab_history, TAB_HISTORY),
@@ -172,20 +199,36 @@ class MainActivity : Activity() {
         )
         for ((glyph, labelRes, index) in tabs) {
             val b = Button(this).apply {
-                text = glyph + "\n" + getString(labelRes)
+                text = tabText(glyph, getString(labelRes))
                 textSize = 12f
                 gravity = Gravity.CENTER
+                isAllCaps = false
                 setOnClickListener { showTab(index) }
             }
             tabButtons.add(b)
-            bottomBar.addView(b, LinearLayout.LayoutParams(0, dp(60), 1f))
+            bottomBar.addView(b, LinearLayout.LayoutParams(0, dp(64), 1f))
         }
-        root.addView(bottomBar)
+        root.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
 
         setContentView(root)
+        bottomBar.requestApplyInsets()
         refreshHistory()
         refreshUi()
         refreshLiveUpdateStatus()
+    }
+
+    /** タブの表示テキスト：アイコンのグリフ（約22sp）＋ラベル（12sp）の2行 */
+    private fun tabText(glyph: String, label: String): SpannableString {
+        val s = SpannableString(glyph + "\n" + label)
+        s.setSpan(RelativeSizeSpan(22f / 12f), 0, glyph.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return s
+    }
+
+    /** タブの背景：押下時のリップル付き。選択中は青ベタ、未選択はバーの面色が透ける透明 */
+    private fun tabBackground(selected: Boolean): RippleDrawable {
+        val rippleColor = ColorStateList.valueOf(Color.argb(70, 255, 255, 255))
+        val content = ColorDrawable(if (selected) TAB_SELECTED else Color.TRANSPARENT)
+        return RippleDrawable(rippleColor, content, null)
     }
 
     /** タブ切替：対象ページだけを表示し、ボトムバーのハイライトを更新する */
@@ -195,13 +238,9 @@ class MainActivity : Activity() {
         historyPage.visibility = if (index == TAB_HISTORY) View.VISIBLE else View.GONE
         settingsPage.visibility = if (index == TAB_SETTINGS) View.VISIBLE else View.GONE
         tabButtons.forEachIndexed { i, b ->
-            if (i == index) {
-                b.setBackgroundColor(Color.rgb(33, 150, 243))
-                b.setTextColor(Color.WHITE)
-            } else {
-                b.setBackgroundColor(Color.TRANSPARENT)
-                b.setTextColor(Color.rgb(66, 66, 66))
-            }
+            val selected = i == index
+            b.background = tabBackground(selected)
+            b.setTextColor(if (selected) Color.WHITE else TAB_UNSELECTED)
         }
         when (index) {
             TAB_HISTORY -> refreshHistory()
