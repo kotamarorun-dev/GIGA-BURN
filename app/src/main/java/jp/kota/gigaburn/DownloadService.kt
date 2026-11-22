@@ -72,11 +72,30 @@ class DownloadService : Service() {
             "https://speed.cloudflare.com/__down?bytes=1073741824"
         )
 
+        // token は fast.com の Web クライアントが使う公開トークン（秘密情報ではない）。
+        // 非公式 API のため、仕様変更時は取得失敗 → 代替サーバーへ落ちる前提で扱う。
         private const val FASTCOM_API =
             "https://api.fast.com/netflix/speedtest/v2?https=true" +
             "&token=YXNkZmFzZGxmbnNkYWZoYXNkZmhrYWxm&urlCount=5"
 
         fun formatMbps(bps: Double): String = String.format("%.1f Mbps", bps * 8.0 / 1_000_000.0)
+
+        /**
+         * 進捗（パーミル、0..1000）。通知（%表示）と画面（プログレスバー）の計算をここへ一本化する。
+         * テストは有効経過秒ベース、バーンはバイト数ベース。
+         */
+        fun progressPermille(): Int = when (SessionState.sessionMode) {
+            MODE_TEST ->
+                (SessionState.testElapsedSec * 1000 / TEST_DURATION_SEC).coerceIn(0, 1000)
+            else -> {
+                val target = SessionState.targetBytes
+                if (target > 0 && target != Long.MAX_VALUE) {
+                    (SessionState.downloadedBytes.get() * 1000 / target).toInt().coerceIn(0, 1000)
+                } else {
+                    0
+                }
+            }
+        }
 
         /** 現在のステータスコードを、渡されたコンテキストのロケールで文言に解決する */
         fun statusLabel(ctx: Context): String = when (SessionState.statusCode) {
@@ -114,11 +133,21 @@ class DownloadService : Service() {
         "GigaBurn/$v (Android prototype)"
     }
 
-    // ---- 計測用（監視スレッドからのみ触る） ----
+    // ---- 計測用 ----
+    // secondRatesMbps は監視スレッドが書き、確定処理（別スレッド）が読むため ratesLock で保護する
+    private val ratesLock = Any()
     private val secondRatesMbps = mutableListOf<Double>() // スピードテスト用：1秒ごとの実効レート（最大10秒分）
-    private var maxRateMbps = 0.0 // バーン用：1秒レートの最大値だけを追う（全件は保持しない）
+    @Volatile private var maxRateMbps = 0.0 // バーン用：1秒レートの最大値だけを追う（全件は保持しない）
     @Volatile private var activeSec = 0 // Wi-Fi停止を除いた有効秒数
-    @Volatile private var recordSaved = false
+    private val recordSaved = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * セッション世代。開始・停止のたびに進める。
+     * 停止→即再開の際、旧セッションのスレッド（監視・解決・ダウンロード）が
+     * フラグの初期化で生き返って新セッションに干渉しないよう、各スレッドは
+     * 自分の世代が現行と一致する間だけ動く。
+     */
+    @Volatile private var sessionGeneration = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -147,13 +176,14 @@ class DownloadService : Service() {
     }
 
     private fun startEngine(mode: Int) {
+        val gen = ++sessionGeneration
         SessionState.resetForSession(mode)
         stopRequested = false
         usingFallback = false
         currentUrls = emptyList()
-        secondRatesMbps.clear()
+        synchronized(ratesLock) { secondRatesMbps.clear() }
         activeSec = 0
-        recordSaved = false
+        recordSaved.set(false)
         maxRateMbps = 0.0
         SessionState.isRunning = true
 
@@ -167,31 +197,33 @@ class DownloadService : Service() {
         // 接続先の解決（Fast.com → ダメなら代替）を別スレッドで
         thread(name = "gigaburn-resolver") {
             val fastUrls = fetchFastComUrls()
+            // 解決に時間がかかった間に停止／再開されていたら、この世代の結果は破棄する
+            if (gen != sessionGeneration || stopRequested) return@thread
             if (fastUrls.isNotEmpty()) {
                 currentUrls = fastUrls
                 SessionState.sourceName = SOURCE_FASTCOM
             } else {
                 switchToFallback()
             }
-            if (!stopRequested) {
-                SessionState.statusCode = if (SessionState.sessionMode == MODE_TEST) STATUS_TESTING else STATUS_DOWNLOADING
-            }
+            SessionState.statusCode = if (SessionState.sessionMode == MODE_TEST) STATUS_TESTING else STATUS_DOWNLOADING
             workers = (0 until THREAD_COUNT).map { idx ->
-                thread(name = "gigaburn-dl-$idx") { downloadLoop(idx) }
+                thread(name = "gigaburn-dl-$idx") { downloadLoop(idx, gen) }
             }
         }
-        monitor = thread(name = "gigaburn-monitor") { monitorLoop() }
+        monitor = thread(name = "gigaburn-monitor") { monitorLoop(gen) }
     }
 
     // ---------------- ダウンロード本体 ----------------
 
-    private fun downloadLoop(index: Int) {
+    private fun downloadLoop(index: Int, gen: Int) {
         val buffer = ByteArray(BUFFER_SIZE)
         var consecutiveFailures = 0
         var roundRobin = index
-        while (!stopRequested && SessionState.downloadedBytes.get() < SessionState.targetBytes) {
+        while (!stopRequested && gen == sessionGeneration &&
+            SessionState.downloadedBytes.get() < SessionState.targetBytes
+        ) {
             // Wi-Fi 一時停止中は読まずに待つ
-            while (SessionState.isPausedWifi && !stopRequested) {
+            while (SessionState.isPausedWifi && !stopRequested && gen == sessionGeneration) {
                 try { Thread.sleep(500) } catch (e: InterruptedException) { return }
             }
             if (stopRequested) break
@@ -214,7 +246,9 @@ class DownloadService : Service() {
                 if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
                 val input: InputStream = conn.inputStream
                 var gotBytesThisConnection = false
-                while (!stopRequested && SessionState.downloadedBytes.get() < SessionState.targetBytes) {
+                while (!stopRequested && gen == sessionGeneration &&
+                    SessionState.downloadedBytes.get() < SessionState.targetBytes
+                ) {
                     if (SessionState.isPausedWifi) break // 一旦切って、再開時に繋ぎ直す
                     val n = input.read(buffer) // 読んだデータは保存せず捨てる
                     if (n == -1) break
@@ -242,7 +276,10 @@ class DownloadService : Service() {
     }
 
     private fun withCacheBuster(url: String): String {
-        // キャッシュで実通信が起きない事態を避けるため、毎回クエリを変える
+        // キャッシュで実通信が起きない事態を避けるため、毎回クエリを変える。
+        // ただし Netflix CDN（nflxvideo.net）の URL は署名付きで、クエリを足すと
+        // 署名検証で弾かれる恐れがあるため、そのまま使う。
+        if (url.contains("nflxvideo.net")) return url
         val sep = if (url.contains("?")) "&" else "?"
         return "$url${sep}cb=${System.nanoTime()}-${(Math.random() * 1e9).toLong()}"
     }
@@ -294,10 +331,14 @@ class DownloadService : Service() {
 
     // ---------------- 監視（速度・Wi-Fi・完了判定・通知・計測） ----------------
 
-    private fun monitorLoop() {
+    private fun monitorLoop(gen: Int) {
         var lastBytes = SessionState.downloadedBytes.get()
         var lastTime = SystemClock.elapsedRealtime()
-        while (!stopRequested) {
+        // 計測は「最初のバイトが流れてから」始める。接続先の解決待ち（最大で
+        // タイムアウト10秒）は有効秒・テスト用サンプルに含めない（含めると
+        // 助走除外の2秒では吸収できず、平均が大きく過小評価される）。
+        var measuring = false
+        while (!stopRequested && gen == sessionGeneration) {
             try { Thread.sleep(1000) } catch (e: InterruptedException) { break }
 
             // Wi-Fi チェック
@@ -321,15 +362,17 @@ class DownloadService : Service() {
                 SessionState.speedBps = if (SessionState.isPausedWifi) 0.0 else SessionState.speedBps * 0.7 + instant * 0.3
             }
 
-            // 計測用サンプル：Wi-Fi停止中は数えない（有効秒として扱わない）
-            if (!SessionState.isPausedWifi && dt > 0) {
+            if (cur > 0) measuring = true
+
+            // 計測用サンプル：Wi-Fi停止中と、計測開始前（解決待ち）は数えない
+            if (measuring && !SessionState.isPausedWifi && dt > 0) {
                 activeSec++
                 if (SessionState.sessionMode == MODE_TEST) SessionState.testElapsedSec = activeSec
                 val rateMbps = (cur - lastBytes) / dt * 8.0 / 1_000_000.0
                 // ライブグラフ用サンプルはサービス側で保持する（監査D1）
                 SessionState.addLiveSample(rateMbps)
                 if (SessionState.sessionMode == MODE_TEST) {
-                    secondRatesMbps.add(rateMbps) // テスト用：最大10秒分しか貯まらない
+                    synchronized(ratesLock) { secondRatesMbps.add(rateMbps) } // テスト用：最大10秒分しか貯まらない
                 } else if (rateMbps > maxRateMbps) {
                     maxRateMbps = rateMbps // バーン用：全件保持せず最大だけ追う（監査A3）
                 }
@@ -347,15 +390,10 @@ class DownloadService : Service() {
                 return
             }
 
-            val pct = currentProgressPct(cur)
+            val pct = progressPermille() / 10
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), pct))
         }
-    }
-
-    private fun currentProgressPct(cur: Long): Int = when (SessionState.sessionMode) {
-        MODE_TEST -> (SessionState.testElapsedSec * 100 / TEST_DURATION_SEC).coerceIn(0, 100)
-        else -> if (SessionState.targetBytes > 0) (cur * 100 / SessionState.targetBytes).toInt().coerceIn(0, 100) else 0
     }
 
     private fun isOnWifi(): Boolean {
@@ -370,24 +408,24 @@ class DownloadService : Service() {
 
     /**
      * セッション結果を確定し、履歴に保存する（二重保存防止つき）。
-     * 平均・最大はどちらもWi-Fi停止を除いた有効秒ベースで統一する（監査B2）。
+     * 平均・最大・所要秒数はすべて「有効秒」（Wi-Fi停止と接続先の解決待ちを
+     * 除いた実ダウンロード時間）ベースで統一する（監査B2を所要秒数まで拡張）。
      * - スピードテスト：先頭 TEST_RAMPUP_SEC 秒のサンプルを除いた残りの平均／最大
-     * - バーン：平均は総バイト÷有効秒、最大は1秒レートの最大。所要秒数は壁時計のまま
+     * - バーン：平均は総バイト÷有効秒、最大は1秒レートの最大
      */
     private fun finalizeRecord() {
-        if (recordSaved) return
-        recordSaved = true
+        if (!recordSaved.compareAndSet(false, true)) return
         val bytes = SessionState.downloadedBytes.get()
         if (bytes <= 0) return
-        val wallSec = if (SessionState.startedAtElapsed > 0)
-            (SystemClock.elapsedRealtime() - SessionState.startedAtElapsed) / 1000 else 0
+        // 監視スレッドが書き続けるリストはスナップショットを取ってから集計する
+        val ratesSnapshot = synchronized(ratesLock) { secondRatesMbps.toList() }
         val avg: Double
         val maxMbps: Double
         val type: String
         val recSeconds: Long
         if (SessionState.sessionMode == MODE_TEST) {
-            val usable = secondRatesMbps.drop(TEST_RAMPUP_SEC)
-            val samples = if (usable.isNotEmpty()) usable else secondRatesMbps
+            val usable = ratesSnapshot.drop(TEST_RAMPUP_SEC)
+            val samples = if (usable.isNotEmpty()) usable else ratesSnapshot
             avg = if (samples.isNotEmpty()) samples.average() else 0.0
             maxMbps = samples.maxOrNull() ?: 0.0
             type = HistoryStore.TYPE_TEST
@@ -396,7 +434,7 @@ class DownloadService : Service() {
             avg = if (activeSec > 0) bytes * 8.0 / activeSec / 1_000_000.0 else 0.0
             maxMbps = maxRateMbps
             type = HistoryStore.TYPE_BURN
-            recSeconds = wallSec
+            recSeconds = activeSec.toLong()
         }
         SessionState.lastResultType = type
         SessionState.lastResultAvgMbps = avg
@@ -415,6 +453,7 @@ class DownloadService : Service() {
     private fun stopEngine(complete: Boolean, status: Int) {
         if (!SessionState.isRunning && !complete) return
         val wasRunning = SessionState.isRunning
+        sessionGeneration++ // この世代のスレッド（監視・解決・DL）をすべて無効化する
         stopRequested = true
         SessionState.isComplete = complete
         SessionState.statusCode = status
@@ -429,7 +468,7 @@ class DownloadService : Service() {
         wakeLock = null
         SessionState.isRunning = false
 
-        val pct = if (complete) 100 else currentProgressPct(SessionState.downloadedBytes.get())
+        val pct = if (complete) 100 else progressPermille() / 10
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), pct))
         stopForeground(STOP_FOREGROUND_DETACH)
@@ -438,6 +477,7 @@ class DownloadService : Service() {
 
     override fun onDestroy() {
         if (SessionState.isRunning) finalizeRecord()
+        sessionGeneration++
         stopRequested = true
         for (c in activeConnections) try { c.disconnect() } catch (e: Exception) { /* ignore */ }
         try { wakeLock?.release() } catch (e: Exception) { /* ignore */ }

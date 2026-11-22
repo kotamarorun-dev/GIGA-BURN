@@ -51,6 +51,7 @@ class MainActivity : Activity() {
         private const val TAB_SPEED = 1
         private const val TAB_SETTINGS = 2
         private const val STATE_TAB = "selected_tab"
+        private const val STATE_INPUT_GB = "input_gb"
 
 
         // ---- テーマ設定（v0.9） ----
@@ -113,28 +114,28 @@ class MainActivity : Activity() {
     private val poll = object : Runnable {
         override fun run() {
             refreshUi()
-            handler.postDelayed(this, 500)
+            // 実行中は500ms、アイドル時は2秒間隔（表示が静的なので十分）
+            handler.postDelayed(this, if (SessionState.isRunning) 500L else 2000L)
         }
     }
 
-    /** テーマ設定の読み書き（SharedPreferences "settings" / key "theme_mode"、既定はシステム連動） */
-    private fun loadThemeMode(): Int =
+    /** 設定用 SharedPreferences（"settings"）。取得は1回だけにして使い回す */
+    private val settingsPrefs by lazy {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getInt(KEY_THEME_MODE, THEME_SYSTEM)
+    }
+
+    /** テーマ設定の読み書き（key "theme_mode"、既定はシステム連動） */
+    private fun loadThemeMode(): Int = settingsPrefs.getInt(KEY_THEME_MODE, THEME_SYSTEM)
 
     private fun saveThemeMode(mode: Int) {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_THEME_MODE, mode).apply()
+        settingsPrefs.edit().putInt(KEY_THEME_MODE, mode).apply()
     }
 
     /** 「モバイル回線のみ」設定の読み書き（設定タブで管理する共有設定、既定は有効：監査B5） */
-    private fun loadMobileOnly(): Boolean =
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_MOBILE_ONLY, true)
+    private fun loadMobileOnly(): Boolean = settingsPrefs.getBoolean(KEY_MOBILE_ONLY, true)
 
     private fun saveMobileOnly(value: Boolean) {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_MOBILE_ONLY, value).apply()
+        settingsPrefs.edit().putBoolean(KEY_MOBILE_ONLY, value).apply()
     }
 
     /** 設定値＋システムのダークモード設定から、実際にダークパレットを使うか決める */
@@ -159,6 +160,10 @@ class MainActivity : Activity() {
                 View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
         buildUi()
+        // テーマ切替などの再生成で、入力途中の目標GBが初期値に戻らないよう復元する
+        if (savedInstanceState != null) {
+            savedInstanceState.getString(STATE_INPUT_GB)?.let { inputGB.setText(it) }
+        }
         showTab(selectedTab)
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -170,6 +175,7 @@ class MainActivity : Activity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(STATE_TAB, selectedTab)
+        if (::inputGB.isInitialized) outState.putString(STATE_INPUT_GB, inputGB.text.toString())
     }
 
     override fun onResume() {
@@ -461,10 +467,30 @@ class MainActivity : Activity() {
         return root
     }
 
-    /** スピード画面の動的部分（履歴一覧・共有ボタンの有効状態・アイドル時のグラフ）を最新化する */
+    /** 履歴の非同期読み込み中フラグ（二重読み防止） */
+    private var historyLoadInFlight = false
+
+    /**
+     * スピード画面の最新化を要求する。履歴はファイル読みのため UI スレッドでは
+     * 読まず、バックグラウンドで読み込んでから画面へ反映する。
+     */
     private fun refreshSpeedPage() {
         if (!::speedGraph.isInitialized) return
-        historyRecords = HistoryStore.load(this)
+        if (historyLoadInFlight) return
+        historyLoadInFlight = true
+        kotlin.concurrent.thread(name = "gigaburn-history-load") {
+            val records = HistoryStore.load(this@MainActivity)
+            handler.post {
+                historyLoadInFlight = false
+                applyHistory(records)
+            }
+        }
+    }
+
+    /** 読み込んだ履歴をスピード画面（履歴一覧・共有ボタンの有効状態・アイドル時のグラフ）へ反映する */
+    private fun applyHistory(records: List<HistoryStore.Record>) {
+        if (!::speedGraph.isInitialized) return
+        historyRecords = records
 
         val hasRecords = historyRecords.isNotEmpty()
         shareTextBtn.isEnabled = hasRecords
@@ -750,13 +776,8 @@ class MainActivity : Activity() {
         speedTestButton.isEnabled = !running
         inputGB.isEnabled = !running
 
-        val pctPermille = when {
-            isTest -> (SessionState.testElapsedSec * 1000 / DownloadService.TEST_DURATION_SEC)
-                .coerceIn(0, 1000)
-            target > 0 && target != Long.MAX_VALUE ->
-                (downloaded * 1000 / target).toInt().coerceIn(0, 1000)
-            else -> 0
-        }
+        // 進捗計算はサービス側と共通化（DownloadService.progressPermille）
+        val pctPermille = DownloadService.progressPermille()
         progressBar.progress = pctPermille
 
         val statusLabel = DownloadService.statusLabel(this)
