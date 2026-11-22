@@ -15,7 +15,7 @@
 - **履歴まわり**: CSV の接続先も言語中立キー（`fallback`）で出すよう統一（以前は日本語の保存値のまま出力）。種別・接続先の変換を共通関数化。履歴ファイルが壊れていた場合は退避（`history.json.corrupt-*`）してから空として扱い、次回保存で履歴が丸ごと消えるのを防止。
 - **画面まわり**: 履歴の読み込みをバックグラウンド化（UIスレッドでファイルを読まない）。テーマ切替などの再生成でも入力した目標GBが保持されるように。アイドル時の画面更新ポーリングを 500ms → 2秒に緩和。進捗計算をサービス側と共通化。
 - **記録の統一**: バーンの所要秒数も、平均と同じ「有効秒」ベースに統一しました（以前は壁時計で、Wi-Fi停止の時間が含まれていました）。
-- **その他**: Netflix CDN の署名付きURLにはキャッシュバスターを付けないよう変更。`release` ビルドで minify を有効化。GitHub Actions のビルド CI を追加。Gradle Wrapper の `gradle-wrapper.properties`（Gradle 8.13）を追加（`gradle-wrapper.jar` はバイナリのため未配置。初回は Android Studio で開くか `gradle wrapper` を実行すると生成されます）。
+- **その他**: Netflix CDN の署名付きURLにはキャッシュバスターを付けないよう変更。`release` ビルドで minify を有効化。Gradle Wrapper の `gradle-wrapper.properties`（Gradle 8.13）を追加（`gradle-wrapper.jar` はバイナリのため未配置。初回は Android Studio で開くか `gradle wrapper` を実行すると生成されます）。
 
 ## v0.9.0の変更点
 
