@@ -59,6 +59,13 @@ object HistoryStore {
             }
             out
         } catch (e: Exception) {
+            // 壊れたファイルを残すと、次回の add が空リストから書き直して
+            // 履歴が丸ごと消える。退避してから空として扱う。
+            try {
+                f.renameTo(File(ctx.filesDir, "$FILE_NAME.corrupt-${System.currentTimeMillis()}"))
+            } catch (e2: Exception) {
+                // ignore
+            }
             emptyList()
         }
     }
@@ -99,10 +106,21 @@ object HistoryStore {
 
     // ---------------- 表示用ローカライズ ----------------
 
+    /** 保存値（種別）を言語中立キーへ正規化する。表示変換とCSV出力で共用する */
+    fun typeKey(type: String): String = when (type) {
+        TYPE_TEST, "speedtest" -> "speedtest"
+        TYPE_BURN, "burn" -> "burn"
+        else -> type
+    }
+
+    /** 保存値（接続先）を言語中立キーへ正規化する（CSV用）。"Fast.com" はそのまま */
+    fun sourceKey(source: String): String =
+        if (source == DownloadService.SOURCE_FALLBACK) "fallback" else source
+
     /** 保存値（種別）を現在のロケールの表示名へ変換する */
-    fun displayType(ctx: Context, type: String): String = when (type) {
-        TYPE_TEST, "speedtest" -> ctx.getString(R.string.type_speed_test)
-        TYPE_BURN, "burn" -> ctx.getString(R.string.type_burn)
+    fun displayType(ctx: Context, type: String): String = when (typeKey(type)) {
+        "speedtest" -> ctx.getString(R.string.type_speed_test)
+        "burn" -> ctx.getString(R.string.type_burn)
         else -> type
     }
 
@@ -157,19 +175,16 @@ object HistoryStore {
         sb.append("timestamp,type,avg_mbps,max_mbps,gb,seconds,source\n")
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
         for (r in records) {
-            // 未知の種別は displayType と揃えて原文のまま出す（監査B3）
-            val typeEn = when (r.type) {
-                TYPE_TEST, "speedtest" -> "speedtest"
-                TYPE_BURN, "burn" -> "burn"
-                else -> r.type
-            }
+            // 種別・接続先とも言語中立キーで出す（未知の値は原文のまま：監査B3）。
+            // 以前は接続先だけ保存値（日本語）がそのまま出ており、ヘッダの
+            // 「言語中立フォーマット」という約束と食い違っていた。
             sb.append(iso.format(Date(r.timestampMs))).append(',')
-                .append(typeEn).append(',')
+                .append(typeKey(r.type)).append(',')
                 .append(String.format(Locale.US, "%.1f", r.avgMbps)).append(',')
                 .append(String.format(Locale.US, "%.1f", r.maxMbps)).append(',')
                 .append(String.format(Locale.US, "%.3f", r.bytes / 1_000_000_000.0)).append(',')
                 .append(r.seconds).append(',')
-                .append(r.source).append("\n")
+                .append(sourceKey(r.source)).append("\n")
         }
         return sb.toString()
     }
