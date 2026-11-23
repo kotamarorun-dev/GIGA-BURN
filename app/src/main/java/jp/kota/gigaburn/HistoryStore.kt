@@ -38,31 +38,31 @@ object HistoryStore {
 
     @Synchronized
     fun load(ctx: Context): List<Record> {
-        val f = file(ctx)
-        if (!f.exists()) return emptyList()
+        val historyFile = file(ctx)
+        if (!historyFile.exists()) return emptyList()
         return try {
-            val arr = JSONArray(f.readText())
-            val out = mutableListOf<Record>()
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                out.add(
+            val jsonArray = JSONArray(historyFile.readText())
+            val loadedRecords = mutableListOf<Record>()
+            for (i in 0 until jsonArray.length()) {
+                val jsonObject = jsonArray.optJSONObject(i) ?: continue
+                loadedRecords.add(
                     Record(
-                        timestampMs = o.optLong("timestampMs"),
-                        type = o.optString("type"),
-                        avgMbps = o.optDouble("avgMbps"),
-                        maxMbps = o.optDouble("maxMbps"),
-                        bytes = o.optLong("bytes"),
-                        seconds = o.optLong("seconds"),
-                        source = o.optString("source")
+                        timestampMs = jsonObject.optLong("timestampMs"),
+                        type = jsonObject.optString("type"),
+                        avgMbps = jsonObject.optDouble("avgMbps"),
+                        maxMbps = jsonObject.optDouble("maxMbps"),
+                        bytes = jsonObject.optLong("bytes"),
+                        seconds = jsonObject.optLong("seconds"),
+                        source = jsonObject.optString("source")
                     )
                 )
             }
-            out
+            loadedRecords
         } catch (e: Exception) {
             // 壊れたファイルを残すと、次回の add が空リストから書き直して
             // 履歴が丸ごと消える。退避してから空として扱う。
             try {
-                f.renameTo(File(ctx.filesDir, "$FILE_NAME.corrupt-${System.currentTimeMillis()}"))
+                historyFile.renameTo(File(ctx.filesDir, "$FILE_NAME.corrupt-${System.currentTimeMillis()}"))
             } catch (e2: Exception) {
                 // ignore
             }
@@ -71,25 +71,25 @@ object HistoryStore {
     }
 
     @Synchronized
-    fun add(ctx: Context, record: Record) {
-        val list = load(ctx).toMutableList()
-        list.add(0, record) // 新しい順
-        val capped = list.take(MAX_RECORDS)
-        val arr = JSONArray()
-        for (r in capped) {
-            arr.put(
+    fun add(ctx: Context, newRecord: Record) {
+        val currentRecords = load(ctx).toMutableList()
+        currentRecords.add(0, newRecord) // 新しい順
+        val capped = currentRecords.take(MAX_RECORDS)
+        val jsonArray = JSONArray()
+        for (record in capped) {
+            jsonArray.put(
                 JSONObject()
-                    .put("timestampMs", r.timestampMs)
-                    .put("type", r.type)
-                    .put("avgMbps", r.avgMbps)
-                    .put("maxMbps", r.maxMbps)
-                    .put("bytes", r.bytes)
-                    .put("seconds", r.seconds)
-                    .put("source", r.source)
+                    .put("timestampMs", record.timestampMs)
+                    .put("type", record.type)
+                    .put("avgMbps", record.avgMbps)
+                    .put("maxMbps", record.maxMbps)
+                    .put("bytes", record.bytes)
+                    .put("seconds", record.seconds)
+                    .put("source", record.source)
             )
         }
         try {
-            file(ctx).writeText(arr.toString())
+            file(ctx).writeText(jsonArray.toString())
         } catch (e: Exception) {
             // 保存に失敗してもアプリ本体は止めない
         }
@@ -138,54 +138,54 @@ object HistoryStore {
     fun formatGb(bytes: Long): String = String.format("%.3f GB", bytes / 1_000_000_000.0)
 
     /** 履歴リスト表示・テキスト共有共通の1行表記 */
-    fun recordLine(ctx: Context, r: Record): String = ctx.getString(
+    fun recordLine(ctx: Context, record: Record): String = ctx.getString(
         R.string.record_line,
-        formatDateTime(r.timestampMs),
-        displayType(ctx, r.type),
-        r.avgMbps,
-        r.maxMbps,
-        formatGb(r.bytes),
-        r.seconds,
-        displaySource(ctx, r.source)
+        formatDateTime(record.timestampMs),
+        displayType(ctx, record.type),
+        record.avgMbps,
+        record.maxMbps,
+        formatGb(record.bytes),
+        record.seconds,
+        displaySource(ctx, record.source)
     )
 
     /** テキスト共有用サマリ（チャットにそのまま貼れる形） */
     fun summaryText(ctx: Context, records: List<Record>): String {
-        val sb = StringBuilder()
-        sb.append(ctx.getString(R.string.summary_header, records.size)).append("\n")
-        for (r in records) sb.append(recordLine(ctx, r)).append("\n")
-        return sb.toString().trimEnd()
+        val summaryBuilder = StringBuilder()
+        summaryBuilder.append(ctx.getString(R.string.summary_header, records.size)).append("\n")
+        for (record in records) summaryBuilder.append(recordLine(ctx, record)).append("\n")
+        return summaryBuilder.toString().trimEnd()
     }
 
     /** 1件分の共有テキスト（やや詳しい版） */
-    fun singleResultText(ctx: Context, r: Record): String = ctx.getString(
+    fun singleResultText(ctx: Context, record: Record): String = ctx.getString(
         R.string.single_result_text,
-        formatDateTime(r.timestampMs),
-        displayType(ctx, r.type),
-        r.avgMbps,
-        r.maxMbps,
-        formatGb(r.bytes),
-        r.seconds,
-        displaySource(ctx, r.source)
+        formatDateTime(record.timestampMs),
+        displayType(ctx, record.type),
+        record.avgMbps,
+        record.maxMbps,
+        formatGb(record.bytes),
+        record.seconds,
+        displaySource(ctx, record.source)
     )
 
     /** CSV（ヘッダ: timestamp,type,avg_mbps,max_mbps,gb,seconds,source）。言語中立フォーマット */
     fun csv(records: List<Record>): String {
-        val sb = StringBuilder()
-        sb.append("timestamp,type,avg_mbps,max_mbps,gb,seconds,source\n")
-        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-        for (r in records) {
+        val csvBuilder = StringBuilder()
+        csvBuilder.append("timestamp,type,avg_mbps,max_mbps,gb,seconds,source\n")
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+        for (record in records) {
             // 種別・接続先とも言語中立キーで出す（未知の値は原文のまま：監査B3）。
             // 以前は接続先だけ保存値（日本語）がそのまま出ており、ヘッダの
             // 「言語中立フォーマット」という約束と食い違っていた。
-            sb.append(iso.format(Date(r.timestampMs))).append(',')
-                .append(typeKey(r.type)).append(',')
-                .append(String.format(Locale.US, "%.1f", r.avgMbps)).append(',')
-                .append(String.format(Locale.US, "%.1f", r.maxMbps)).append(',')
-                .append(String.format(Locale.US, "%.3f", r.bytes / 1_000_000_000.0)).append(',')
-                .append(r.seconds).append(',')
-                .append(sourceKey(r.source)).append("\n")
+            csvBuilder.append(isoFormat.format(Date(record.timestampMs))).append(',')
+                .append(typeKey(record.type)).append(',')
+                .append(String.format(Locale.US, "%.1f", record.avgMbps)).append(',')
+                .append(String.format(Locale.US, "%.1f", record.maxMbps)).append(',')
+                .append(String.format(Locale.US, "%.3f", record.bytes / 1_000_000_000.0)).append(',')
+                .append(record.seconds).append(',')
+                .append(sourceKey(record.source)).append("\n")
         }
-        return sb.toString()
+        return csvBuilder.toString()
     }
 }

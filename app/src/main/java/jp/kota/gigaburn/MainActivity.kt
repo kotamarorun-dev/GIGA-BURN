@@ -667,8 +667,8 @@ class MainActivity : Activity() {
             liveUpdateButton.isEnabled = false
             return
         }
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val allowed = try { nm.canPostPromotedNotifications() } catch (e: Exception) { false }
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val allowed = try { notificationManager.canPostPromotedNotifications() } catch (e: Exception) { false }
         liveUpdateText.text = if (allowed) {
             getString(R.string.lu_allowed)
         } else {

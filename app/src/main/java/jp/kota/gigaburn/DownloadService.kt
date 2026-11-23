@@ -124,13 +124,13 @@ class DownloadService : Service() {
 
     /** User-Agent（バージョンを固定文字列にせず、インストール済みパッケージから取る：監査A1） */
     private val userAgent: String by lazy {
-        val v = try {
+        val versionName = try {
             @Suppress("DEPRECATION")
             packageManager.getPackageInfo(packageName, 0).versionName
         } catch (e: Exception) {
             null
         } ?: "?"
-        "GigaBurn/$v (Android prototype)"
+        "GigaBurn/$versionName (Android prototype)"
     }
 
     // ---- 計測用 ----
@@ -176,7 +176,7 @@ class DownloadService : Service() {
     }
 
     private fun startEngine(mode: Int) {
-        val gen = ++sessionGeneration
+        val generation = ++sessionGeneration
         SessionState.resetForSession(mode)
         stopRequested = false
         usingFallback = false
@@ -190,15 +190,15 @@ class DownloadService : Service() {
         createChannel()
         startForegroundWith(buildNotification(statusLabel(this), 0))
 
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gigaburn:download")
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gigaburn:download")
             .apply { acquire(12 * 60 * 60 * 1000L) }
 
         // 接続先の解決（Fast.com → ダメなら代替）を別スレッドで
         thread(name = "gigaburn-resolver") {
             val fastUrls = fetchFastComUrls()
             // 解決に時間がかかった間に停止／再開されていたら、この世代の結果は破棄する
-            if (gen != sessionGeneration || stopRequested) return@thread
+            if (generation != sessionGeneration || stopRequested) return@thread
             if (fastUrls.isNotEmpty()) {
                 currentUrls = fastUrls
                 SessionState.sourceName = SOURCE_FASTCOM
@@ -206,24 +206,24 @@ class DownloadService : Service() {
                 switchToFallback()
             }
             SessionState.statusCode = if (SessionState.sessionMode == MODE_TEST) STATUS_TESTING else STATUS_DOWNLOADING
-            workers = (0 until THREAD_COUNT).map { idx ->
-                thread(name = "gigaburn-dl-$idx") { downloadLoop(idx, gen) }
+            workers = (0 until THREAD_COUNT).map { workerIndex ->
+                thread(name = "gigaburn-dl-$workerIndex") { downloadLoop(workerIndex, generation) }
             }
         }
-        monitor = thread(name = "gigaburn-monitor") { monitorLoop(gen) }
+        monitor = thread(name = "gigaburn-monitor") { monitorLoop(generation) }
     }
 
     // ---------------- ダウンロード本体 ----------------
 
-    private fun downloadLoop(index: Int, gen: Int) {
+    private fun downloadLoop(index: Int, generation: Int) {
         val buffer = ByteArray(BUFFER_SIZE)
         var consecutiveFailures = 0
         var roundRobin = index
-        while (!stopRequested && gen == sessionGeneration &&
+        while (!stopRequested && generation == sessionGeneration &&
             SessionState.downloadedBytes.get() < SessionState.targetBytes
         ) {
             // Wi-Fi 一時停止中は読まずに待つ
-            while (SessionState.isPausedWifi && !stopRequested && gen == sessionGeneration) {
+            while (SessionState.isPausedWifi && !stopRequested && generation == sessionGeneration) {
                 try { Thread.sleep(500) } catch (e: InterruptedException) { return }
             }
             if (stopRequested) break
@@ -232,11 +232,11 @@ class DownloadService : Service() {
                 try { Thread.sleep(300) } catch (e: InterruptedException) { return }
                 continue
             }
-            val base = urls[roundRobin % urls.size]
+            val baseUrl = urls[roundRobin % urls.size]
             roundRobin++
             var conn: HttpURLConnection? = null
             try {
-                conn = (URL(withCacheBuster(base)).openConnection() as HttpURLConnection).apply {
+                conn = (URL(withCacheBuster(baseUrl)).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15_000
                     readTimeout = 30_000
                     setRequestProperty("User-Agent", userAgent)
@@ -246,14 +246,14 @@ class DownloadService : Service() {
                 if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
                 val input: InputStream = conn.inputStream
                 var gotBytesThisConnection = false
-                while (!stopRequested && gen == sessionGeneration &&
+                while (!stopRequested && generation == sessionGeneration &&
                     SessionState.downloadedBytes.get() < SessionState.targetBytes
                 ) {
                     if (SessionState.isPausedWifi) break // 一旦切って、再開時に繋ぎ直す
-                    val n = input.read(buffer) // 読んだデータは保存せず捨てる
-                    if (n == -1) break
-                    if (n > 0) {
-                        SessionState.downloadedBytes.addAndGet(n.toLong())
+                    val bytesRead = input.read(buffer) // 読んだデータは保存せず捨てる
+                    if (bytesRead == -1) break
+                    if (bytesRead > 0) {
+                        SessionState.downloadedBytes.addAndGet(bytesRead.toLong())
                         gotBytesThisConnection = true
                     }
                 }
@@ -305,20 +305,20 @@ class DownloadService : Service() {
                 readTimeout = 10_000
                 setRequestProperty("User-Agent", userAgent)
             }
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val responseText = conn.inputStream.bufferedReader().use { it.readText() }
             val urls = mutableListOf<String>()
-            val trimmed = text.trim()
+            val trimmed = responseText.trim()
             if (trimmed.startsWith("{")) {
                 val targets = JSONObject(trimmed).optJSONArray("targets") ?: JSONArray()
                 for (i in 0 until targets.length()) {
-                    val u = targets.optJSONObject(i)?.optString("url") ?: ""
-                    if (u.isNotEmpty()) urls.add(u)
+                    val targetUrl = targets.optJSONObject(i)?.optString("url") ?: ""
+                    if (targetUrl.isNotEmpty()) urls.add(targetUrl)
                 }
             } else if (trimmed.startsWith("[")) {
-                val arr = JSONArray(trimmed)
-                for (i in 0 until arr.length()) {
-                    val u = arr.optJSONObject(i)?.optString("url") ?: ""
-                    if (u.isNotEmpty()) urls.add(u)
+                val rootArray = JSONArray(trimmed)
+                for (i in 0 until rootArray.length()) {
+                    val targetUrl = rootArray.optJSONObject(i)?.optString("url") ?: ""
+                    if (targetUrl.isNotEmpty()) urls.add(targetUrl)
                 }
             }
             urls
@@ -331,19 +331,19 @@ class DownloadService : Service() {
 
     // ---------------- 監視（速度・Wi-Fi・完了判定・通知・計測） ----------------
 
-    private fun monitorLoop(gen: Int) {
+    private fun monitorLoop(generation: Int) {
         var lastBytes = SessionState.downloadedBytes.get()
-        var lastTime = SystemClock.elapsedRealtime()
+        var lastTickElapsedMs = SystemClock.elapsedRealtime()
         // 計測は「最初のバイトが流れてから」始める。接続先の解決待ち（最大で
         // タイムアウト10秒）は有効秒・テスト用サンプルに含めない（含めると
         // 助走除外の2秒では吸収できず、平均が大きく過小評価される）。
         var measuring = false
-        while (!stopRequested && gen == sessionGeneration) {
+        while (!stopRequested && generation == sessionGeneration) {
             try { Thread.sleep(1000) } catch (e: InterruptedException) { break }
 
             // Wi-Fi チェック
-            val wifi = isOnWifi()
-            if (mobileOnly && wifi) {
+            val onWifi = isOnWifi()
+            if (mobileOnly && onWifi) {
                 if (!SessionState.isPausedWifi) {
                     SessionState.isPausedWifi = true
                     SessionState.statusCode = STATUS_PAUSED_WIFI
@@ -354,21 +354,21 @@ class DownloadService : Service() {
             }
 
             // 速度（指数移動平均で平滑化）。一時停止中は 0 に寄せる
-            val now = SystemClock.elapsedRealtime()
-            val cur = SessionState.downloadedBytes.get()
-            val dt = (now - lastTime) / 1000.0
-            if (dt > 0) {
-                val instant = (cur - lastBytes) / dt
-                SessionState.speedBps = if (SessionState.isPausedWifi) 0.0 else SessionState.speedBps * 0.7 + instant * 0.3
+            val nowElapsedMs = SystemClock.elapsedRealtime()
+            val currentBytes = SessionState.downloadedBytes.get()
+            val intervalSec = (nowElapsedMs - lastTickElapsedMs) / 1000.0
+            if (intervalSec > 0) {
+                val instantBytesPerSec = (currentBytes - lastBytes) / intervalSec
+                SessionState.speedBps = if (SessionState.isPausedWifi) 0.0 else SessionState.speedBps * 0.7 + instantBytesPerSec * 0.3
             }
 
-            if (cur > 0) measuring = true
+            if (currentBytes > 0) measuring = true
 
             // 計測用サンプル：Wi-Fi停止中と、計測開始前（解決待ち）は数えない
-            if (measuring && !SessionState.isPausedWifi && dt > 0) {
+            if (measuring && !SessionState.isPausedWifi && intervalSec > 0) {
                 activeSec++
                 if (SessionState.sessionMode == MODE_TEST) SessionState.testElapsedSec = activeSec
-                val rateMbps = (cur - lastBytes) / dt * 8.0 / 1_000_000.0
+                val rateMbps = (currentBytes - lastBytes) / intervalSec * 8.0 / 1_000_000.0
                 // ライブグラフ用サンプルはサービス側で保持する（監査D1）
                 SessionState.addLiveSample(rateMbps)
                 if (SessionState.sessionMode == MODE_TEST) {
@@ -377,30 +377,30 @@ class DownloadService : Service() {
                     maxRateMbps = rateMbps // バーン用：全件保持せず最大だけ追う（監査A3）
                 }
             }
-            lastBytes = cur
-            lastTime = now
+            lastBytes = currentBytes
+            lastTickElapsedMs = nowElapsedMs
 
             // 完了判定
             if (SessionState.sessionMode == MODE_TEST && activeSec >= TEST_DURATION_SEC) {
                 stopEngine(complete = true, status = STATUS_TEST_COMPLETE)
                 return
             }
-            if (SessionState.sessionMode == MODE_BURN && cur >= SessionState.targetBytes && SessionState.targetBytes > 0) {
+            if (SessionState.sessionMode == MODE_BURN && currentBytes >= SessionState.targetBytes && SessionState.targetBytes > 0) {
                 stopEngine(complete = true, status = STATUS_BURN_COMPLETE)
                 return
             }
 
-            val pct = progressPermille() / 10
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), pct))
+            val progressPercent = progressPermille() / 10
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), progressPercent))
         }
     }
 
     private fun isOnWifi(): Boolean {
         return try {
-            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork) ?: return false
+            networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
         } catch (e: Exception) {
             false
         }
@@ -415,38 +415,38 @@ class DownloadService : Service() {
      */
     private fun finalizeRecord() {
         if (!recordSaved.compareAndSet(false, true)) return
-        val bytes = SessionState.downloadedBytes.get()
-        if (bytes <= 0) return
+        val totalDownloadedBytes = SessionState.downloadedBytes.get()
+        if (totalDownloadedBytes <= 0) return
         // 監視スレッドが書き続けるリストはスナップショットを取ってから集計する
         val ratesSnapshot = synchronized(ratesLock) { secondRatesMbps.toList() }
-        val avg: Double
+        val avgMbps: Double
         val maxMbps: Double
         val type: String
         val recSeconds: Long
         if (SessionState.sessionMode == MODE_TEST) {
             val usable = ratesSnapshot.drop(TEST_RAMPUP_SEC)
             val samples = if (usable.isNotEmpty()) usable else ratesSnapshot
-            avg = if (samples.isNotEmpty()) samples.average() else 0.0
+            avgMbps = if (samples.isNotEmpty()) samples.average() else 0.0
             maxMbps = samples.maxOrNull() ?: 0.0
             type = HistoryStore.TYPE_TEST
             recSeconds = activeSec.toLong()
         } else {
-            avg = if (activeSec > 0) bytes * 8.0 / activeSec / 1_000_000.0 else 0.0
+            avgMbps = if (activeSec > 0) totalDownloadedBytes * 8.0 / activeSec / 1_000_000.0 else 0.0
             maxMbps = maxRateMbps
             type = HistoryStore.TYPE_BURN
             recSeconds = activeSec.toLong()
         }
         SessionState.lastResultType = type
-        SessionState.lastResultAvgMbps = avg
+        SessionState.lastResultAvgMbps = avgMbps
         SessionState.lastResultMaxMbps = maxMbps
-        SessionState.lastResultBytes = bytes
+        SessionState.lastResultBytes = totalDownloadedBytes
         SessionState.lastResultSeconds = recSeconds
         SessionState.lastResultSource = SessionState.sourceName
         SessionState.lastResultTimestampMs = System.currentTimeMillis()
         SessionState.hasLastResult = true
         HistoryStore.add(
             applicationContext,
-            HistoryStore.Record(SessionState.lastResultTimestampMs, type, avg, maxMbps, bytes, recSeconds, SessionState.sourceName)
+            HistoryStore.Record(SessionState.lastResultTimestampMs, type, avgMbps, maxMbps, totalDownloadedBytes, recSeconds, SessionState.sourceName)
         )
     }
 
@@ -463,14 +463,14 @@ class DownloadService : Service() {
         SessionState.speedBps = 0.0
         SessionState.isPausedWifi = false
         // ブロック中の読み取りを中断する
-        for (c in activeConnections) try { c.disconnect() } catch (e: Exception) { /* ignore */ }
+        for (connection in activeConnections) try { connection.disconnect() } catch (e: Exception) { /* ignore */ }
         try { wakeLock?.release() } catch (e: Exception) { /* ignore */ }
         wakeLock = null
         SessionState.isRunning = false
 
-        val pct = if (complete) 100 else progressPermille() / 10
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), pct))
+        val progressPercent = if (complete) 100 else progressPermille() / 10
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, buildNotification(statusLabel(this), progressPercent))
         stopForeground(STOP_FOREGROUND_DETACH)
         stopSelf()
     }
@@ -479,7 +479,7 @@ class DownloadService : Service() {
         if (SessionState.isRunning) finalizeRecord()
         sessionGeneration++
         stopRequested = true
-        for (c in activeConnections) try { c.disconnect() } catch (e: Exception) { /* ignore */ }
+        for (connection in activeConnections) try { connection.disconnect() } catch (e: Exception) { /* ignore */ }
         try { wakeLock?.release() } catch (e: Exception) { /* ignore */ }
         super.onDestroy()
     }
@@ -487,17 +487,17 @@ class DownloadService : Service() {
     // ---------------- 通知 ----------------
 
     private fun createChannel() {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val ch = NotificationChannel(
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.channel_name),
             NotificationManager.IMPORTANCE_LOW
         )
-        nm.createNotificationChannel(ch)
+        notificationManager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String, pct: Int): Notification {
-        val pi = PendingIntent.getActivity(
+    private fun buildNotification(statusText: String, progressPercent: Int): Notification {
+        val openAppPendingIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -516,33 +516,33 @@ class DownloadService : Service() {
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.notif_text_with_body, text, body))
-            .setContentIntent(pi)
+            .setContentText(getString(R.string.notif_text_with_body, statusText, body))
+            .setContentIntent(openAppPendingIntent)
             .setOngoing(SessionState.isRunning)
             .setOnlyAlertOnce(true)
 
         if (SessionState.isRunning) {
             // 通知から直接止められるようにストップアクションを付ける
-            val stopPi = PendingIntent.getService(
+            val stopPendingIntent = PendingIntent.getService(
                 this, 1,
                 Intent(this, DownloadService::class.java).apply { action = ACTION_STOP },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopPi)
+            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopPendingIntent)
         }
 
         if (SessionState.isRunning && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
             // Android 16（API 36）以降：Live Updates（昇格した継続中通知）として投稿する。
             val style = Notification.ProgressStyle()
-                .setProgress(pct.coerceIn(0, 100))
+                .setProgress(progressPercent.coerceIn(0, 100))
             builder.setStyle(style)
             builder.requestPromotedOngoing()
             // ステータスバーのチップに出す短いテキスト（7文字以内目安）
-            builder.setShortCriticalText("${pct.coerceIn(0, 100)}%")
+            builder.setShortCriticalText("${progressPercent.coerceIn(0, 100)}%")
         } else {
             // API 35 以下、または完了通知：従来の進捗バー付き通常通知
             // 完了・停止通知では不確定表示にしない（旧 MODE_NONE 条件は常に false だった：監査B4）
-            builder.setProgress(100, pct.coerceIn(0, 100), false)
+            builder.setProgress(100, progressPercent.coerceIn(0, 100), false)
         }
         return builder.build()
     }
@@ -559,10 +559,10 @@ class DownloadService : Service() {
         extras.putBoolean("android.requestPromotedOngoing", true)
         addExtras(extras)
         try {
-            val m = Notification.Builder::class.java.getMethod(
+            val method = Notification.Builder::class.java.getMethod(
                 "setRequestPromotedOngoing", Boolean::class.javaPrimitiveType
             )
-            m.invoke(this, true)
+            method.invoke(this, true)
         } catch (e: Exception) {
             // メソッドが無い環境では extras 方式のみで要求する
         }
