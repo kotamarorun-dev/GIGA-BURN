@@ -27,25 +27,25 @@ class ShareFileProvider : ContentProvider() {
     private fun resolve(uri: Uri): File {
         val name = uri.lastPathSegment ?: throw FileNotFoundException("no name")
         if (name.contains("/") || name.contains("..")) throw FileNotFoundException("bad name")
-        val ctx = context ?: throw FileNotFoundException("no context")
-        return File(File(ctx.cacheDir, "share"), name)
+        val appContext = context ?: throw FileNotFoundException("no context")
+        return File(File(appContext.cacheDir, "share"), name)
     }
 
     override fun onCreate(): Boolean = true
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        val f = resolve(uri)
-        if (!f.exists()) throw FileNotFoundException(f.path)
-        return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
+        val targetFile = resolve(uri)
+        if (!targetFile.exists()) throw FileNotFoundException(targetFile.path)
+        return ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
     override fun query(
         uri: Uri, projection: Array<out String>?, selection: String?,
         selectionArgs: Array<out String>?, sortOrder: String?
     ): Cursor {
-        val f = resolve(uri)
+        val targetFile = resolve(uri)
         val cursor = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE))
-        cursor.addRow(arrayOf<Any>(f.name, if (f.exists()) f.length() else 0L))
+        cursor.addRow(arrayOf<Any>(targetFile.name, if (targetFile.exists()) targetFile.length() else 0L))
         return cursor
     }
 
