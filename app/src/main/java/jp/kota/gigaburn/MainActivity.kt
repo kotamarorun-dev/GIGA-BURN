@@ -20,7 +20,10 @@ import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.graphics.Typeface
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
@@ -59,6 +62,13 @@ class MainActivity : Activity() {
         private const val PREFS_NAME = "settings"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_MOBILE_ONLY = "mobile_only"
+        /** 目標GBの前回値（v1.0.1: 手入力一本化に伴い前回値を復元する） */
+        private const val KEY_TARGET_GB = "target_gb"
+
+        // ---- 目標GBの入力仕様（v1.0.1） ----
+        private const val TARGET_GB_MIN = 0.1
+        private const val TARGET_GB_MAX = 100.0
+        private const val TARGET_GB_STEP = 1.0
 
         /** グラフに表示する履歴の件数 */
         private const val GRAPH_HISTORY_COUNT = 30
@@ -73,6 +83,9 @@ class MainActivity : Activity() {
 
     // ---- ホーム画面のView ----
     private lateinit var inputGB: EditText
+    private lateinit var targetErrorText: TextView
+    private lateinit var stepperMinusButton: Button
+    private lateinit var stepperPlusButton: Button
     private lateinit var startStopButton: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var downloadedText: TextView
@@ -153,17 +166,23 @@ class MainActivity : Activity() {
             selectedTab = savedInstanceState.getInt(STATE_TAB, TAB_HOME)
         }
         palette = if (isDarkEffective(loadThemeMode())) DARK_PALETTE else LIGHT_PALETTE
-        // ステータスバーもパレットに合わせる（ライト時はアイコンを暗色にする）
-        window.statusBarColor = palette.background
+        // v1.0.1: プラットフォームのアクションバー（テーマ非連動の黒帯）は隠し、
+        // タイトルバーは buildUi で自前ヘッダーとして描く
+        actionBar?.hide()
+        // ステータスバーはタイトルバーの背景色に合わせる（ライト時はアイコンを暗色にする）
+        window.statusBarColor = palette.headerBackground
         if (!palette.dark) {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or
                 View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
         buildUi()
-        // テーマ切替などの再生成で、入力途中の目標GBが初期値に戻らないよう復元する
+        // テーマ切替などの再生成で、入力途中の目標GBが初期値に戻らないよう復元する。
+        // 再生成でない通常起動では、前回入力した目標GB（SharedPreferences）を復元する。
         if (savedInstanceState != null) {
             savedInstanceState.getString(STATE_INPUT_GB)?.let { inputGB.setText(it) }
+        } else {
+            settingsPrefs.getString(KEY_TARGET_GB, null)?.let { inputGB.setText(it) }
         }
         showTab(selectedTab)
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -202,6 +221,24 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(palette.background)
         }
+
+        // タイトルバー（v1.0.1で自前化）: テーマ連動の背景・文字色＋下部に1dp境界線。
+        // ライト=白背景＋濃色文字、ダーク=solid-gray-900背景＋白文字。
+        val headerBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(palette.headerBackground)
+            setPadding(dp(20), dp(14), dp(20), dp(14))
+        }
+        headerBar.addView(TextView(this).apply {
+            text = getString(R.string.app_name)
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(palette.headerText)
+        })
+        root.addView(headerBar, LinearLayout.LayoutParams(-1, -2))
+        val headerDivider = View(this).apply { setBackgroundColor(palette.divider) }
+        root.addView(headerDivider, LinearLayout.LayoutParams(-1, dp(1)))
 
         // コンテンツ領域（3画面を重ねて表示切替）
         val content = FrameLayout(this)
@@ -277,12 +314,14 @@ class MainActivity : Activity() {
         refreshLiveUpdateStatus()
     }
 
-    /** タブの背景：押下時のリップル付き。選択中は青ベタ、未選択はバーの面色が透ける透明 */
+    /**
+     * タブの背景：押下時のリップル付き。
+     * v1.0.1: 選択中は青ベタ塗りをやめ、淡い背景（ライト=blue-50／ダーク=一段明るい面）に
+     * アイコン・ラベルの色で選択を示す静かな表現へ変更した。
+     */
     private fun tabBackground(selected: Boolean): RippleDrawable {
-        val rippleColor = ColorStateList.valueOf(
-            if (selected) Color.argb(70, 255, 255, 255) else palette.tabRippleUnselected
-        )
-        val content = ColorDrawable(if (selected) palette.tabSelected else Color.TRANSPARENT)
+        val rippleColor = ColorStateList.valueOf(palette.tabRippleUnselected)
+        val content = ColorDrawable(if (selected) palette.tabSelectedBackground else Color.TRANSPARENT)
         return RippleDrawable(rippleColor, content, null)
     }
 
@@ -315,21 +354,16 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(24), dp(20), dp(20))
         }
 
-        val title = TextView(this).apply {
-            text = getString(R.string.app_name)
-            textSize = 26f
-            gravity = Gravity.CENTER
-            setTextColor(palette.textPrimary)
-        }
-        root.addView(title)
+        // 画面名の見出し（アプリ名はタイトルバー側に出るため、本文側は画面名にする）
+        root.addView(pageHeading(R.string.tab_home))
 
         val sub = TextView(this).apply {
             text = getString(R.string.app_subtitle)
             textSize = 13f
-            gravity = Gravity.CENTER
             setTextColor(palette.textSecondary)
+            setLineSpacing(0f, 1.5f)
         }
-        root.addView(sub)
+        root.addView(sub, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
         val inputLabel = TextView(this).apply {
             text = getString(R.string.target_label)
@@ -355,17 +389,55 @@ class MainActivity : Activity() {
             minHeight = dp(56)
         }
         root.addView(inputGB)
-
-        val presetRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        for (gb in listOf(1, 10, 50, 100)) {
-            val b = Button(this).apply {
-                text = getString(R.string.preset_gb, gb)
-                styleButton(this)
-                setOnClickListener { inputGB.setText(gb.toString()) }
+        inputGB.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                // 有効な値になったらエラーを消し、前回値として保存する
+                val v = parseTargetGb()
+                if (v != null) {
+                    targetErrorText.visibility = View.GONE
+                    settingsPrefs.edit().putString(KEY_TARGET_GB, formatTargetGb(v)).apply()
+                }
             }
-            presetRow.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+
+        // 入力例と範囲のヘルパーテキスト（DADSフォームの作法）
+        val inputHelp = TextView(this).apply {
+            text = getString(R.string.target_help)
+            textSize = 13f
+            setTextColor(palette.textSecondary)
         }
-        root.addView(presetRow)
+        root.addView(inputHelp, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // 範囲外・不正入力のエラー表示（通常は非表示）
+        targetErrorText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(palette.errorText)
+            visibility = View.GONE
+        }
+        root.addView(targetErrorText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        // ステッパー（v1.0.1: プリセット廃止・手入力一本化の補助として ±1GB ボタン）
+        val stepperRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        stepperMinusButton = Button(this).apply {
+            text = getString(R.string.stepper_decrease)
+            contentDescription = getString(R.string.stepper_decrease_desc)
+            styleButton(this)
+            setOnClickListener { stepTargetGb(-TARGET_GB_STEP) }
+        }
+        stepperPlusButton = Button(this).apply {
+            text = getString(R.string.stepper_increase)
+            contentDescription = getString(R.string.stepper_increase_desc)
+            styleButton(this)
+            setOnClickListener { stepTargetGb(TARGET_GB_STEP) }
+        }
+        stepperRow.addView(stepperMinusButton, LinearLayout.LayoutParams(0, -2, 1f))
+        stepperRow.addView(
+            stepperPlusButton,
+            LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) }
+        )
+        root.addView(stepperRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         startStopButton = Button(this).apply {
             text = getString(R.string.start)
@@ -378,8 +450,9 @@ class MainActivity : Activity() {
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             progress = 0
-            // 進捗だけはGIGA-BURNのブランド色（アイコンの赤）を残す唯一のアクセント
-            progressTintList = ColorStateList.valueOf(palette.brandAccent)
+            // v1.0.1: ブランド赤は実機レビューで「エラー表示の線」に誤読されたため、
+            // 進捗色はDADSキーカラーへ移行した（判断変更は DADS.md に記録）
+            progressTintList = ColorStateList.valueOf(palette.primaryBackground)
         }
         root.addView(progressBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
 
@@ -420,12 +493,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(20), dp(16), dp(16))
         }
 
-        root.addView(TextView(this).apply {
-            text = getString(R.string.tab_speed)
-            textSize = 24f
-            gravity = Gravity.CENTER
-            setTextColor(palette.textPrimary)
-        })
+        root.addView(pageHeading(R.string.tab_speed))
 
         // --- スピードテスト ---
         speedTestButton = Button(this).apply {
@@ -446,7 +514,7 @@ class MainActivity : Activity() {
         }
         root.addView(graphModeLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
         speedGraph = SpeedGraphView(this)
-        speedGraph.applyPalette(palette.background, palette.graphGrid, palette.graphText)
+        speedGraph.applyPalette(palette.background, palette.graphGrid, palette.graphText, palette.graphLine)
         root.addView(speedGraph, LinearLayout.LayoutParams(-1, dp(190)).apply { topMargin = dp(4) })
 
         // --- グラフに付随する共有アクション：テキスト共有 / CSV共有 / 消去 ---
@@ -466,9 +534,10 @@ class MainActivity : Activity() {
             styleButton(this)
             setOnClickListener { confirmClearHistory() }
         }
+        // v1.0.1: ボタン同士に8dpの隙間を空ける（枠線の共有による二重線・圧迫感の解消）
         btnRow.addView(shareTextBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        btnRow.addView(shareCsvBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        btnRow.addView(clearBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        btnRow.addView(shareCsvBtn, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) })
+        btnRow.addView(clearBtn, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) })
         root.addView(btnRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         // --- 履歴一覧（スクロール） ---
@@ -517,12 +586,47 @@ class MainActivity : Activity() {
                 setTextColor(palette.textSecondary)
             })
         } else {
-            for (r in historyRecords) {
+            // v1.0.1: 履歴を1件=1ブロックに分ける（日時見出し＋数値＋接続先を別行にし、
+            // 「代替サーバー」等が文中で割れないようにする）。共有用 recordLine は不変。
+            historyRecords.forEachIndexed { index, r ->
+                if (index > 0) {
+                    val dividerView = View(this).apply { setBackgroundColor(palette.divider) }
+                    historyListLayout.addView(
+                        dividerView,
+                        LinearLayout.LayoutParams(-1, dp(1)).apply {
+                            topMargin = dp(10); bottomMargin = dp(10)
+                        }
+                    )
+                }
                 historyListLayout.addView(TextView(this).apply {
-                    text = HistoryStore.recordLine(this@MainActivity, r)
+                    text = getString(
+                        R.string.history_heading,
+                        HistoryStore.formatDateTime(r.timestampMs),
+                        HistoryStore.displayType(this@MainActivity, r.type)
+                    )
+                    textSize = 13f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(palette.textSecondary)
+                })
+                historyListLayout.addView(TextView(this).apply {
+                    text = getString(
+                        R.string.history_metrics,
+                        r.avgMbps,
+                        r.maxMbps,
+                        HistoryStore.formatGb(r.bytes),
+                        r.seconds
+                    )
                     textSize = 14f
                     setTextColor(palette.textPrimary)
-                    setPadding(0, dp(6), 0, dp(6))
+                    setLineSpacing(0f, 1.5f)
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                historyListLayout.addView(TextView(this).apply {
+                    text = getString(
+                        R.string.history_source,
+                        HistoryStore.displaySource(this@MainActivity, r.source)
+                    )
+                    textSize = 14f
+                    setTextColor(palette.textPrimary)
                 })
             }
         }
@@ -586,12 +690,7 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(24), dp(20), dp(20))
         }
 
-        root.addView(TextView(this).apply {
-            text = getString(R.string.settings_title)
-            textSize = 24f
-            gravity = Gravity.CENTER
-            setTextColor(palette.textPrimary)
-        })
+        root.addView(pageHeading(R.string.settings_title))
 
         // --- セクション: テーマ（システム連動／ライト／ダーク） ---
         val themeSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -719,6 +818,35 @@ class MainActivity : Activity() {
     private fun infoText(): TextView = TextView(this).apply {
         textSize = 15f
         setTextColor(palette.textPrimary)
+        // v1.0.1: 本文の行間を DADS の読みやすさ（行高1.5〜1.7）に寄せる
+        setLineSpacing(0f, 1.5f)
+    }
+
+    /** 各タブ本文の先頭に置く画面名の見出し（v1.0.1で3画面の体裁を統一） */
+    private fun pageHeading(textRes: Int): TextView = TextView(this).apply {
+        text = getString(textRes)
+        textSize = 24f
+        setTypeface(typeface, Typeface.BOLD)
+        setTextColor(palette.textPrimary)
+    }
+
+    /** 目標GB入力のパース＋範囲チェック。有効なら値、無効なら null */
+    private fun parseTargetGb(): Double? {
+        val v = inputGB.text.toString().toDoubleOrNull() ?: return null
+        return if (v in TARGET_GB_MIN..TARGET_GB_MAX) v else null
+    }
+
+    /** 目標GBの表示整形（整数は整数表記、小数は末尾ゼロを落とす） */
+    private fun formatTargetGb(v: Double): String =
+        if (v == v.toLong().toDouble()) v.toLong().toString()
+        else v.toString().trimEnd('0').trimEnd('.')
+
+    /** ステッパー：現在値（無効なら既定10GB）を ±step して範囲内に丸め、入力欄へ反映する */
+    private fun stepTargetGb(step: Double) {
+        val current = inputGB.text.toString().toDoubleOrNull() ?: 10.0
+        val next = (current + step).coerceIn(TARGET_GB_MIN, TARGET_GB_MAX)
+        inputGB.setText(formatTargetGb(next))
+        inputGB.setSelection(inputGB.text.length)
     }
 
     /**
@@ -767,8 +895,11 @@ class MainActivity : Activity() {
             startService(i)
             return
         }
-        val gb = inputGB.text.toString().toDoubleOrNull()
-        if (gb == null || gb <= 0) {
+        val gb = parseTargetGb()
+        if (gb == null) {
+            // 範囲外・不正入力はエラー色のインライン表示で止める（開始不可）
+            targetErrorText.text = getString(R.string.error_target_range)
+            targetErrorText.visibility = View.VISIBLE
             statusTextView.text = getString(R.string.error_invalid_target)
             return
         }
@@ -821,6 +952,8 @@ class MainActivity : Activity() {
         startStopButton.text = if (running) getString(R.string.stop) else getString(R.string.start)
         speedTestButton.isEnabled = !running
         inputGB.isEnabled = !running
+        stepperMinusButton.isEnabled = !running
+        stepperPlusButton.isEnabled = !running
 
         // 進捗計算はサービス側と共通化（DownloadService.progressPermille）
         val pctPermille = DownloadService.progressPermille()

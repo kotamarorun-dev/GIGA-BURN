@@ -49,13 +49,18 @@ class SpeedGraphView(ctx: Context) : View(ctx) {
     }
 
     /**
-     * テーマパレットのうちグラフに関わる色（背景・グリッド・軸テキスト）を適用する。
-     * 線の色（ライブ=青／履歴=緑）はテーマによらず固定で、両テーマで判別できるようにしてある。
+     * テーマパレットのうちグラフに関わる色（背景・グリッド・軸テキスト・線色）を適用する。
+     * v1.0.1: 線色はライブ／履歴ともDADSキーカラーに統一した（履歴の緑は
+     * DADSでは成功の意味色のため、ただの折れ線に使うと意味が混ざる）。
      */
-    fun applyPalette(background: Int, grid: Int, axisText: Int) {
+    fun applyPalette(background: Int, grid: Int, axisText: Int, line: Int) {
         setBackgroundColor(background)
         gridPaint.color = grid
         textPaint.color = axisText
+        liveLinePaint.color = line
+        liveFillPaint.color = Color.argb(50, Color.red(line), Color.green(line), Color.blue(line))
+        historyLinePaint.color = line
+        historyPointPaint.color = line
         invalidate()
     }
 
