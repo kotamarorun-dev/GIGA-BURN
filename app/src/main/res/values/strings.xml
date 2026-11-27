@@ -6,6 +6,12 @@
     <!-- メイン画面 -->
     <string name="target_label">目標（GB）</string>
     <string name="preset_gb">%1$dGB</string>
+    <string name="target_help">例：10（0.1〜100GB の範囲で入力できます）</string>
+    <string name="error_target_range">目標は0.1〜100GB の範囲で入力してください</string>
+    <string name="stepper_decrease">-1GB</string>
+    <string name="stepper_increase">+1GB</string>
+    <string name="stepper_decrease_desc">目標を1GB減らす</string>
+    <string name="stepper_increase_desc">目標を1GB増やす</string>
     <string name="mobile_only">モバイル回線のみ（Wi-Fiでは一時停止）</string>
     <string name="start">スタート</string>
     <string name="stop">ストップ</string>
@@ -80,6 +86,9 @@
 
     <!-- スピードタブの履歴（共有・消去） -->
     <string name="history_empty">履歴はまだありません。バーンかスピードテストを実行すると記録されます。</string>
+    <string name="history_heading">%1$s %2$s</string>
+    <string name="history_metrics">平均 %1$.1f Mbps / 最大 %2$.1f Mbps / 消費 %3$s（%4$d秒）</string>
+    <string name="history_source">接続先：%1$s</string>
     <string name="share">共有</string>
     <string name="share_csv">CSVで共有</string>
     <string name="clear_history">履歴を消去</string>

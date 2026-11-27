@@ -25,7 +25,17 @@ val textSecondary: Int,
 val tabUnselected: Int,
 val tabSelected: Int,
 val tabSelectedText: Int,
+/** 選択中タブの背景（v1.0.1: 青ベタ塗りから淡い背景＋色付き文字へ変更） */
+val tabSelectedBackground: Int,
 val tabRippleUnselected: Int,
+/** タイトルバー（自前ヘッダー）の背景 */
+val headerBackground: Int,
+/** タイトルバーの文字色 */
+val headerText: Int,
+/** エラーメッセージの文字色 */
+val errorText: Int,
+/** グラフの線色（ライブ／履歴共通のキーカラー） */
+val graphLine: Int,
 /** セカンダリボタン（DADSアウトラインボタン）の背景 */
 val buttonBackground: Int,
 /** セカンダリボタン（DADSアウトラインボタン）の文字色 */
@@ -38,7 +48,7 @@ val primaryBackground: Int,
 val primaryText: Int,
 /** テキスト入力欄の枠線色 */
 val inputBorder: Int,
-/** GIGA-BURNのアイデンティティとして残す唯一のアクセント（プログレスバー専用） */
+/** GIGA-BURNのブランド色。v1.0ではプログレスバーに使ったが、v1.0.1で進捗色はキーカラーへ移行したため実行時未使用（アイコン色の記録として保持） */
 val brandAccent: Int,
 val graphGrid: Int,
 val graphText: Int
@@ -59,8 +69,13 @@ textPrimary = Color.rgb(0x33, 0x33, 0x33), // solid-gray-800 #333333（DADS本�
 textSecondary = Color.rgb(0x66, 0x66, 0x66), // solid-gray-600 #666666
 tabUnselected = Color.rgb(0x66, 0x66, 0x66), // solid-gray-600
 tabSelected = Color.rgb(0x00, 0x17, 0xC1), // primitive blue-900 #0017C1（DADSキーカラー）
-tabSelectedText = Color.WHITE,
+tabSelectedText = Color.rgb(0x00, 0x17, 0xC1), // blue-900（淡背景の上で文字色で示す）
+tabSelectedBackground = Color.rgb(0xE8, 0xF1, 0xFE), // primitive blue-50 #E8F1FE
 tabRippleUnselected = Color.argb(40, 0, 0, 0),
+headerBackground = Color.rgb(0xFF, 0xFF, 0xFF), // neutral white
+headerText = Color.rgb(0x33, 0x33, 0x33), // solid-gray-800
+errorText = Color.rgb(0xCE, 0x00, 0x00), // semantic error-2 #CE0000
+graphLine = Color.rgb(0x00, 0x17, 0xC1), // blue-900
 buttonBackground = Color.WHITE, // アウトラインボタンは白背景
 buttonText = Color.rgb(0x00, 0x17, 0xC1), // blue-900
 buttonBorder = Color.rgb(0x00, 0x17, 0xC1), // blue-900
@@ -83,8 +98,13 @@ textPrimary = Color.WHITE,
 textSecondary = Color.rgb(0xCC, 0xCC, 0xCC), // solid-gray-200
 tabUnselected = Color.rgb(0xCC, 0xCC, 0xCC), // solid-gray-200
 tabSelected = Color.rgb(0x00, 0x31, 0xD8), // primitive blue-800 #0031D8
-tabSelectedText = Color.WHITE,
+tabSelectedText = Color.rgb(0xE8, 0xF1, 0xFE), // blue-50（濃い面の上で読める淡色）
+tabSelectedBackground = Color.rgb(0x33, 0x33, 0x33), // solid-gray-800（面より一段明るく）
 tabRippleUnselected = Color.argb(70, 255, 255, 255),
+headerBackground = Color.rgb(0x1A, 0x1A, 0x1A), // solid-gray-900
+headerText = Color.WHITE,
+errorText = Color.rgb(0xFF, 0x7A, 0x7A), // ダーク背景で読める淡い赤（ローカル割り当て）
+graphLine = Color.rgb(0x00, 0x31, 0xD8), // blue-800
 buttonBackground = Color.rgb(0x1A, 0x1A, 0x1A), // 背景と同色＋枠線で示すアウトラインボタン
 buttonText = Color.WHITE,
 buttonBorder = Color.rgb(0xCC, 0xCC, 0xCC), // solid-gray-200

@@ -6,6 +6,12 @@
     <!-- Main screen -->
     <string name="target_label">Target (GB)</string>
     <string name="preset_gb">%1$d GB</string>
+    <string name="target_help">e.g. 10 (enter a value from 0.1 to 100 GB)</string>
+    <string name="error_target_range">Enter a target from 0.1 to 100 GB</string>
+    <string name="stepper_decrease">-1 GB</string>
+    <string name="stepper_increase">+1 GB</string>
+    <string name="stepper_decrease_desc">Decrease target by 1 GB</string>
+    <string name="stepper_increase_desc">Increase target by 1 GB</string>
     <string name="mobile_only">Mobile data only (pauses on Wi-Fi)</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
@@ -80,6 +86,9 @@
 
     <!-- History on the Speed tab (share / clear) -->
     <string name="history_empty">No history yet. Run a burn or a speed test and it will show up here.</string>
+    <string name="history_heading">%1$s %2$s</string>
+    <string name="history_metrics">avg %1$.1f Mbps / max %2$.1f Mbps / used %3$s (%4$d sec)</string>
+    <string name="history_source">Source: %1$s</string>
     <string name="share">Share</string>
     <string name="share_csv">Share as CSV</string>
     <string name="clear_history">Clear history</string>
