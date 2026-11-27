@@ -11,6 +11,7 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
@@ -343,6 +344,15 @@ class MainActivity : Activity() {
             textSize = 20f
             setTextColor(palette.textPrimary)
             setHintTextColor(palette.textSecondary)
+            // DADSテキスト入力：白背景・solid-gray-600 の1dp枠線・角丸8dp（radius-8）
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(palette.background)
+                setStroke(dp(1), palette.inputBorder)
+            }
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            minHeight = dp(56)
         }
         root.addView(inputGB)
 
@@ -360,7 +370,7 @@ class MainActivity : Activity() {
         startStopButton = Button(this).apply {
             text = getString(R.string.start)
             textSize = 18f
-            styleButton(this)
+            stylePrimaryButton(this)
             setOnClickListener { onStartStop() }
         }
         root.addView(startStopButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -368,6 +378,8 @@ class MainActivity : Activity() {
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             progress = 0
+            // 進捗だけはGIGA-BURNのブランド色（アイコンの赤）を残す唯一のアクセント
+            progressTintList = ColorStateList.valueOf(palette.brandAccent)
         }
         root.addView(progressBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
 
@@ -419,7 +431,7 @@ class MainActivity : Activity() {
         speedTestButton = Button(this).apply {
             text = getString(R.string.speed_test_button, DownloadService.TEST_DURATION_SEC)
             textSize = 16f
-            styleButton(this)
+            stylePrimaryButton(this)
             setOnClickListener { onSpeedTest() }
         }
         root.addView(speedTestButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -709,10 +721,44 @@ class MainActivity : Activity() {
         setTextColor(palette.textPrimary)
     }
 
-    /** ボタンの配色をパレットに合わせる（テーマ標準の押下状態は背景tintで維持する） */
+    /**
+     * セカンダリボタン：DADSアウトラインボタン。
+     * 白背景・キーカラーの枠線（2dp）と文字・角丸8dp（radius-8トークン）・
+     * 最小高さ48dp（DADSのターゲット領域44px以上の要件を満たす）。
+     * 押下フィードバックはRippleDrawableで維持する。
+     */
     private fun styleButton(b: Button) {
-        b.backgroundTintList = ColorStateList.valueOf(palette.buttonBackground)
+        val shape = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(8).toFloat()
+            setColor(palette.buttonBackground)
+            setStroke(dp(2), palette.buttonBorder)
+        }
+        b.background = RippleDrawable(
+            ColorStateList.valueOf(palette.tabRippleUnselected), shape, null
+        )
+        b.backgroundTintList = null
         b.setTextColor(palette.buttonText)
+        b.minHeight = dp(48)
+    }
+
+    /**
+     * プライマリボタン：DADS塗りボタン。キーカラー背景・白文字・角丸8dp・最小高さ56dp。
+     * DADSの原則（プライマリは画面の最重要アクションに使う）に従い、
+     * ホームの開始/停止とスピードテスト開始だけに適用する。
+     */
+    private fun stylePrimaryButton(b: Button) {
+        val shape = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(8).toFloat()
+            setColor(palette.primaryBackground)
+        }
+        b.background = RippleDrawable(
+            ColorStateList.valueOf(Color.argb(70, 255, 255, 255)), shape, null
+        )
+        b.backgroundTintList = null
+        b.setTextColor(palette.primaryText)
+        b.minHeight = dp(56)
     }
 
     private fun onStartStop() {

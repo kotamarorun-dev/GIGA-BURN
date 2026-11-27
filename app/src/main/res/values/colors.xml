@@ -2,4 +2,34 @@
 <resources>
     <!-- アプリアイコン背景色（ユーザーロゴの赤をサンプリング） -->
     <color name="ic_launcher_background">#A51D0F</color>
+
+    <!--
+      DADS（デジタル庁デザインシステム）デザイントークンのAndroidリソース転記。
+      出典: 公式 npm パッケージ @digital-go-jp/design-tokens v2.1.0
+      （dist/tokens.css / dist/tokens-simple.css）。
+      実行時の色解決は Theme.kt の Palette が担うため、ここは参照・検証用の正本コピー。
+    -->
+    <!-- キーカラー（primitive blue） -->
+    <color name="dads_blue_50">#E8F1FE</color>
+    <color name="dads_blue_800">#0031D8</color>
+    <color name="dads_blue_900">#0017C1</color>
+    <color name="dads_blue_1000">#00118F</color>
+    <!-- ニュートラル（neutral solid gray / white） -->
+    <color name="dads_white">#FFFFFF</color>
+    <color name="dads_solid_gray_50">#F2F2F2</color>
+    <color name="dads_solid_gray_100">#E6E6E6</color>
+    <color name="dads_solid_gray_200">#CCCCCC</color>
+    <color name="dads_solid_gray_300">#B3B3B3</color>
+    <color name="dads_solid_gray_420">#949494</color>
+    <color name="dads_solid_gray_600">#666666</color>
+    <color name="dads_solid_gray_700">#4D4D4D</color>
+    <color name="dads_solid_gray_800">#333333</color>
+    <color name="dads_solid_gray_900">#1A1A1A</color>
+    <!-- セマンティック -->
+    <color name="dads_semantic_success_1">#259D63</color>
+    <color name="dads_semantic_success_2">#197A4B</color>
+    <color name="dads_semantic_error_1">#EC0000</color>
+    <color name="dads_semantic_error_2">#CE0000</color>
+    <color name="dads_semantic_warning_orange_1">#FB5B01</color>
+    <color name="dads_semantic_warning_orange_2">#C74700</color>
 </resources>
